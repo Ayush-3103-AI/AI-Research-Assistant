@@ -18,6 +18,13 @@ DomainChoice = Literal[
     "CS_AI_ML", "ECE", "EEE", "MECHANICAL", "CIVIL", "CLOUD_DEVOPS", "Other",
 ]
 
+# Which signal put a topic on the shortlist. "gap_mining" is declared but
+# not produced by the current pipeline: every candidate originates from the
+# velocity step, and gap mining only annotates those, so a topic can be
+# "velocity" or (once gaps corroborate it) "both". It is kept in the literal
+# because a future gap-first discovery path would produce it, and widening a
+# persisted enum later is a breaking change for every result.json already on
+# disk, whereas an unused value costs nothing.
 CandidateSource = Literal["velocity", "gap_mining", "both"]
 
 DEFAULT_SHORTLIST_SIZE = 8
@@ -120,6 +127,13 @@ class TrendAdvisorResult(BaseModel):
     domain: DomainChoice
     domain_other_name: str | None = None
     shortlist: list[TopicCandidate]
+    # The topic the student locked in, when they got that far. Named rather
+    # than implied by shortlist position: the orchestrator records this as
+    # the run's chosen topic, and a positional convention shared across two
+    # modules is one reorder away from attributing the wrong topic to the
+    # student with nothing failing. None when the shortlist was produced but
+    # no pick was made (user story 10 — stopping to think it over).
+    chosen_topic: str | None = None
     generated_at: str
     # Surfaced, not swallowed: an unreachable arXiv or a thin domain must be
     # visible to the student rather than presented as confident output.

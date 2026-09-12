@@ -17,12 +17,16 @@ from researchgenie.theme import ACCENT, ERROR, MUTED, OK, SECONDARY, WARN
 # Maps the orchestrator's internal stage keys to display titles, in the
 # fixed order the pipeline actually runs them.
 _STAGE_TITLES = {
+    "trend_advisor": "Trend & Gap Advisor",
     "discovery": "Research Discovery",
     "writing": "Research Writing",
     "verification": "Citation Verification",
     "quality_assurance": "Quality Assessment",
 }
 _STAGE_ORDER = ["discovery", "writing", "verification", "quality_assurance"]
+# Stage 0 is optional and only ever runs via `researchgenie-advise`, so it is
+# opt-in here — a plain run must not show a row that will stay empty forever.
+_TREND_ADVISOR_STAGE = "trend_advisor"
 
 _STATUS_GLYPH = {
     "done": ("✓", OK),
@@ -54,8 +58,9 @@ class PipelineView:
     """Consumes orchestrator progress events and renders a live tree of
     stage → message lines, each with a real status glyph."""
 
-    def __init__(self) -> None:
-        self.stages: dict[str, _StageLog] = {key: _StageLog() for key in _STAGE_ORDER}
+    def __init__(self, include_trend_advisor: bool = False) -> None:
+        order = ([_TREND_ADVISOR_STAGE] if include_trend_advisor else []) + _STAGE_ORDER
+        self.stages: dict[str, _StageLog] = {key: _StageLog() for key in order}
 
     def ingest(self, event: dict) -> None:
         stage = event.get("stage")
@@ -78,8 +83,7 @@ class PipelineView:
 
     def render(self) -> Group:
         blocks = []
-        for key in _STAGE_ORDER:
-            log = self.stages[key]
+        for key, log in self.stages.items():
             glyph, color = _STATUS_GLYPH[log.status]
             title = Text(f"{glyph} {_STAGE_TITLES[key]}", style=f"bold {color}")
             body = Table.grid(padding=(0, 1))

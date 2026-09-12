@@ -111,6 +111,17 @@ def parse_pick(text: str, candidates: list[TopicCandidate]) -> int | None:
     return None
 
 
+def with_chosen_topic(result: TrendAdvisorResult,
+                      chosen: TopicCandidate) -> TrendAdvisorResult:
+    """The same result, naming the topic the student locked in.
+
+    The shortlist keeps its own ranking untouched — it is the context the
+    decision was made against, and re-sorting it would misrepresent what the
+    student was actually shown.
+    """
+    return result.model_copy(update={"chosen_topic": chosen.topic})
+
+
 def _shortlist_context(result: TrendAdvisorResult) -> str:
     """The shortlist as structured text for the model — every number it is
     allowed to cite, and nothing else."""
@@ -306,7 +317,15 @@ def main() -> None:
                       f"paste the question above.[/{MUTED}]")
         return
 
-    asyncio.run(_run_research(console, ResearchRequest(research_question=question)))
+    asyncio.run(_run_research(
+        console,
+        # The topic also travels as a keyword: Discovery's relevance gate
+        # scores candidates against user keywords as its highest-confidence
+        # terms (D-018), so the pick keeps steering the search even if the
+        # student rewrote the question above into something looser.
+        ResearchRequest(research_question=question, keywords=[chosen.topic]),
+        trend_advisor=with_chosen_topic(result, chosen),
+    ))
 
 
 if __name__ == "__main__":

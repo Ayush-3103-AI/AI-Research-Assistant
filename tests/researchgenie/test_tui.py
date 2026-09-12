@@ -79,3 +79,59 @@ def test_render_does_not_raise_after_a_full_run_of_events():
         view.ingest(_event(stage, "running", "working"))
         view.ingest(_event(stage, "done", "finished"))
     view.render()
+
+
+def test_trend_advisor_stage_is_hidden_by_default():
+    """A plain `researchgenie` run never involves the advisor, so its view
+    must not grow a permanently-empty row for it."""
+    view = PipelineView()
+    view.ingest({"stage": "trend_advisor", "status": "done", "message": "picked a topic"})
+
+    assert "trend_advisor" not in view.stages
+
+
+def test_trend_advisor_stage_is_shown_when_the_run_started_from_it():
+    """Regression: the orchestrator emitted a Stage 0 event that this view
+    dropped on the floor, so the advisor-started run showed no sign of the
+    stage that produced its topic."""
+    view = PipelineView(include_trend_advisor=True)
+    view.ingest({"stage": "trend_advisor", "status": "done",
+                 "message": "Shortlisted 8 rising topic(s)"})
+
+    assert view.stages["trend_advisor"].status == "done"
+    assert any("Shortlisted 8" in line for line, _ in view.stages["trend_advisor"].lines)
+
+
+def test_trend_advisor_stage_renders_before_discovery():
+    view = PipelineView(include_trend_advisor=True)
+
+    assert list(view.stages) == ["trend_advisor", "discovery", "writing",
+                                 "verification", "quality_assurance"]
+
+
+def test_render_draws_the_stage_zero_panel():
+    """render() iterates instance state rather than a module constant, so the
+    optional-stage case is the one that has to be exercised, not just the
+    stage dict it was built from."""
+    from rich.console import Console
+    view = PipelineView(include_trend_advisor=True)
+    view.ingest({"stage": "trend_advisor", "status": "done",
+                 "message": "Shortlisted 8 rising topic(s)"})
+
+    console = Console(width=100, legacy_windows=False, record=True)
+    console.print(view.render())
+    output = console.export_text()
+
+    assert "Trend & Gap Advisor" in output
+    assert "Shortlisted 8 rising topic(s)" in output
+    assert "Research Discovery" in output
+
+
+def test_render_omits_the_stage_zero_panel_for_a_plain_run():
+    from rich.console import Console
+    console = Console(width=100, legacy_windows=False, record=True)
+    console.print(PipelineView().render())
+    output = console.export_text()
+
+    assert "Trend & Gap Advisor" not in output
+    assert "Research Discovery" in output

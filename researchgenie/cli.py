@@ -130,14 +130,17 @@ def _provider_label(config: rg_config.Config) -> str:
     return f"Ollama · {config.ollama_model}"
 
 
-async def _run_research(console: Console, request: ResearchRequest) -> None:
-    view = PipelineView()
+async def _run_research(console: Console, request: ResearchRequest,
+                        trend_advisor=None) -> None:
+    """trend_advisor is the optional Stage 0 result, passed only by the
+    `researchgenie-advise` flow — see orchestrator/pipeline.py."""
+    view = PipelineView(include_trend_advisor=trend_advisor is not None)
     result = None
     error: PipelineError | None = None
 
     with Live(view.render(), console=console, refresh_per_second=6) as live:
         try:
-            async for event in run_pipeline(request):
+            async for event in run_pipeline(request, trend_advisor=trend_advisor):
                 if event["type"] == "result":
                     result = event["result"]
                 else:

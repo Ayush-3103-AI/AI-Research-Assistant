@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from researchgenie.advisor_cli import parse_pick  # noqa: E402
+from researchgenie.advisor_cli import parse_pick, with_chosen_topic  # noqa: E402
 from shared.contracts.trend_contract import TopicCandidate  # noqa: E402
 
 CANDIDATES = [
@@ -53,3 +53,57 @@ def test_a_question_mentioning_a_number_is_not_a_pick():
 
 def test_plain_question_is_not_a_pick():
     assert parse_pick("which of these is less crowded?", CANDIDATES) is None
+
+
+# --- The hand-off into the pipeline's optional Stage 0 ----------------------
+
+def _result():
+    from shared.contracts.trend_contract import TrendAdvisorResult
+    return TrendAdvisorResult(
+        domain="CS_AI_ML", shortlist=list(CANDIDATES),
+        generated_at="2026-09-12T00:00:00Z",
+    )
+
+
+def test_the_pick_is_named_explicitly_not_implied_by_position():
+    """The orchestrator records which topic the student chose. Naming it
+    beats a positional convention the two modules could silently disagree
+    about — a reordering on either side would otherwise report the wrong
+    topic with no test failing."""
+    result = _result()
+
+    handed_off = with_chosen_topic(result, result.shortlist[2])
+
+    assert handed_off.chosen_topic == "Edge Inference"
+
+
+def test_the_shortlists_own_ranking_is_left_alone():
+    """The advisor ranks gap-flagged topics first for a reason; the hand-off
+    must not silently re-sort the evidence the student was shown."""
+    result = _result()
+
+    handed_off = with_chosen_topic(result, result.shortlist[2])
+
+    assert [c.topic for c in handed_off.shortlist] == [c.topic for c in result.shortlist]
+
+
+def test_a_value_equal_copy_of_the_pick_still_works():
+    """Regression: the first version matched the pick by object identity, so
+    a candidate that had been through a JSON round-trip (as any saved and
+    reloaded result has) was not recognised."""
+    from shared.contracts.trend_contract import TrendAdvisorResult
+    result = _result()
+    reloaded = TrendAdvisorResult.model_validate(result.model_dump())
+
+    handed_off = with_chosen_topic(result, reloaded.shortlist[1])
+
+    assert handed_off.chosen_topic == "Digital Twins"
+    assert len(handed_off.shortlist) == len(result.shortlist)
+
+
+def test_handoff_does_not_mutate_the_advisor_result():
+    result = _result()
+
+    with_chosen_topic(result, result.shortlist[2])
+
+    assert result.chosen_topic is None

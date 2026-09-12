@@ -159,3 +159,160 @@ def test_run_pipeline_raises_if_a_stage_yields_no_result(tmp_path, monkeypatch):
 
     with pytest.raises(orchestrator_pipeline.PipelineError):
         asyncio.run(run())
+
+
+# --- Optional Stage 0: Trend & Gap Advisor (DECISIONS.md D-031) -------------
+
+def _fake_trend_result():
+    from shared.contracts.trend_contract import TopicCandidate, TrendAdvisorResult
+    return TrendAdvisorResult(
+        domain="CS_AI_ML",
+        shortlist=[TopicCandidate(
+            topic="Edge Inference", topic_id="T1", growth_metric=3.0,
+            paper_count=900, prior_papers=300, gap_signal=True,
+            gap_evidence=["On-device latency is unmeasured."], source="both",
+        )],
+        generated_at="2026-09-12T00:00:00Z",
+    )
+
+
+def test_stage_zero_is_absent_by_default(tmp_path):
+    """The advisor is optional: a plain run must be byte-for-byte what it
+    was before this stage existed."""
+    request = ResearchRequest(research_question="What is X?", corpus_size=6)
+
+    async def run():
+        result = None
+        events = []
+        async for event in orchestrator_pipeline.run_pipeline(request, output_root=tmp_path):
+            if event["type"] == "result":
+                result = event["result"]
+            else:
+                events.append(event)
+        return events, result
+
+    events, result = asyncio.run(run())
+
+    assert result.trend_advisor is None
+    assert not (Path(result.run_directory) / "00_trend_advisor").exists()
+    assert not any(e.get("stage") == "trend_advisor" for e in events)
+    metadata = json.loads((Path(result.run_directory) / "metadata.json").read_text(encoding="utf-8"))
+    assert "chosen_topic" not in metadata
+
+
+def test_stage_zero_is_persisted_into_the_same_run_folder(tmp_path):
+    """Why a student chose this topic and what the pipeline then produced
+    belong to one run, not two unrelated folders."""
+    request = ResearchRequest(research_question="How does edge inference scale?", corpus_size=6)
+    advisor = _fake_trend_result()
+
+    async def run():
+        result = None
+        async for event in orchestrator_pipeline.run_pipeline(
+            request, output_root=tmp_path, trend_advisor=advisor,
+        ):
+            if event["type"] == "result":
+                result = event["result"]
+        return result
+
+    result = asyncio.run(run())
+
+    saved = Path(result.run_directory) / "00_trend_advisor" / "result.json"
+    assert saved.exists()
+    assert json.loads(saved.read_text(encoding="utf-8"))["shortlist"][0]["topic"] == "Edge Inference"
+    assert result.trend_advisor.shortlist[0].topic == "Edge Inference"
+
+
+def test_stage_zero_is_reported_in_the_audit_trail(tmp_path):
+    request = ResearchRequest(research_question="How does edge inference scale?", corpus_size=6)
+
+    async def run():
+        events = []
+        async for event in orchestrator_pipeline.run_pipeline(
+            request, output_root=tmp_path, trend_advisor=_fake_trend_result(),
+        ):
+            if event["type"] != "result":
+                events.append(event)
+        return events
+
+    events = asyncio.run(run())
+
+    stage_zero = [e for e in events if e.get("stage") == "trend_advisor"]
+    assert stage_zero, "Stage 0 produced no progress event"
+    assert stage_zero[0]["status"] == "done"
+    assert set(stage_zero[0]) >= {"run_id", "stage", "service", "status", "emoji",
+                                  "title", "message", "details", "timestamp"}
+    # Stage 0 is reported before Discovery, since it ran before it.
+    assert events.index(stage_zero[0]) < min(
+        i for i, e in enumerate(events) if e.get("stage") == "discovery")
+
+
+
+
+def test_metadata_reads_the_named_pick_not_the_first_entry(tmp_path):
+    """The chosen topic is whichever one the student named, wherever it sits
+    in the shortlist's own ranking."""
+    from shared.contracts.trend_contract import TopicCandidate
+    advisor = _fake_trend_result()
+    advisor = advisor.model_copy(update={
+        "shortlist": [
+            TopicCandidate(topic="Not Chosen", topic_id="T9", growth_metric=9.0,
+                           paper_count=100),
+            *advisor.shortlist,
+        ],
+        "chosen_topic": "Edge Inference",
+    })
+    request = ResearchRequest(research_question="How does edge inference scale?", corpus_size=6)
+
+    async def run():
+        async for event in orchestrator_pipeline.run_pipeline(
+            request, output_root=tmp_path, trend_advisor=advisor,
+        ):
+            if event["type"] == "result":
+                return event["result"]
+
+    result = asyncio.run(run())
+    metadata = json.loads((Path(result.run_directory) / "metadata.json").read_text(encoding="utf-8"))
+
+    assert metadata["chosen_topic"] == "Edge Inference"
+    assert metadata["chosen_topic_gap_flagged"] is True
+
+
+def test_no_chosen_topic_recorded_when_the_advisor_result_names_none(tmp_path):
+    """A shortlist saved without a pick (the student stopped to think it
+    over) must not have a topic attributed to them."""
+    request = ResearchRequest(research_question="What is X?", corpus_size=6)
+
+    async def run():
+        async for event in orchestrator_pipeline.run_pipeline(
+            request, output_root=tmp_path, trend_advisor=_fake_trend_result(),
+        ):
+            if event["type"] == "result":
+                return event["result"]
+
+    result = asyncio.run(run())
+    metadata = json.loads((Path(result.run_directory) / "metadata.json").read_text(encoding="utf-8"))
+
+    assert "chosen_topic" not in metadata
+    # The shortlist itself is still preserved as run provenance.
+    assert (Path(result.run_directory) / "00_trend_advisor" / "result.json").exists()
+
+
+def test_a_chosen_topic_absent_from_the_shortlist_is_not_reported_as_gap_flagged(tmp_path):
+    """Defensive: the gap flag is looked up by topic name, so a name that
+    matches nothing must report False rather than raise or guess."""
+    advisor = _fake_trend_result().model_copy(update={"chosen_topic": "Some Other Topic"})
+    request = ResearchRequest(research_question="What is X?", corpus_size=6)
+
+    async def run():
+        async for event in orchestrator_pipeline.run_pipeline(
+            request, output_root=tmp_path, trend_advisor=advisor,
+        ):
+            if event["type"] == "result":
+                return event["result"]
+
+    result = asyncio.run(run())
+    metadata = json.loads((Path(result.run_directory) / "metadata.json").read_text(encoding="utf-8"))
+
+    assert metadata["chosen_topic"] == "Some Other Topic"
+    assert metadata["chosen_topic_gap_flagged"] is False

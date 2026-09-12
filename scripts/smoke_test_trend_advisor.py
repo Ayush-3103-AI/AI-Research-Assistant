@@ -25,6 +25,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from researchgenie.advisor_cli import with_chosen_topic  # noqa: E402
 from shared.contracts.pipeline_contract import ResearchRequest  # noqa: E402
 from shared.contracts.trend_contract import TrendAdvisorRequest  # noqa: E402
 
@@ -66,12 +67,22 @@ async def main(domain: str, other_name: str | None) -> None:
     for warning in result.warnings:
         print(f"\nWARNING: {warning}")
 
-    # The hand-off the CLI performs on convergence: the locked-in topic
-    # auto-fills the existing pipeline's request, with nothing retyped.
+    # The hand-off the CLI performs on convergence, exercised for real: the
+    # locked-in topic auto-fills the pipeline request (the CLI additionally
+    # rewrites the topic into a research question via one model call, which
+    # this runner skips so it still works with no model available), and the
+    # whole shortlist travels with it as the optional Stage 0 that the
+    # orchestrator persists into the run folder.
     top = result.shortlist[0]
-    auto_filled = ResearchRequest(research_question=top.topic)
+    auto_filled = ResearchRequest(research_question=top.topic, keywords=[top.topic])
+    handed_off = with_chosen_topic(result, top)
     print("\n=== AUTO-FILLED ResearchRequest (top pick) ===")
     print(auto_filled.model_dump_json(indent=2))
+    print("\n=== STAGE 0 HANDED TO run_pipeline(trend_advisor=...) ===")
+    print(f"chosen topic: {handed_off.chosen_topic}")
+    print(f"shortlist carried for provenance: {len(handed_off.shortlist)} topic(s)")
+    print("orchestrator writes it to <run>/00_trend_advisor/result.json and "
+          "records chosen_topic in metadata.json")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from shared.contracts.pipeline_contract import (  # noqa: E402
     PipelineResult, ResearchRequest, StageTimings,
 )
 from shared.contracts.qa_contract import QualityAssuranceRequest  # noqa: E402
+from shared.contracts.trend_contract import TrendAdvisorResult  # noqa: E402
 from shared.contracts.verification_contract import VerificationRequest  # noqa: E402
 from shared.contracts.writing_contract import WritingRequest  # noqa: E402
 from shared.utilities import latex_export  # noqa: E402
@@ -52,6 +53,7 @@ qa_service = _load_service(
 DEFAULT_OUTPUT_ROOT = ROOT / "outputs"
 
 _STAGE_EMOJI = {
+    "trend_advisor": "📈",
     "discovery": "🔍",
     "writing": "✍️",
     "verification": "🔗",
@@ -113,6 +115,7 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 
 async def run_pipeline(
     request: ResearchRequest, output_root: Path | None = None, run_id: str | None = None,
+    trend_advisor: TrendAdvisorResult | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Yields standardized progress events, then a final
     {"type": "result", "result": PipelineResult} event. Raises
@@ -127,6 +130,20 @@ async def run_pipeline(
     run_directory = output_root / f"{_slugify(request.research_question)}_{run_id}"
     run_directory.mkdir(parents=True, exist_ok=True)
     _write_json(run_directory / "00_request.json", request.model_dump(mode="json"))
+
+    # ---- Stage 0 (optional): Trend & Gap Advisor ----
+    if trend_advisor is not None:
+        _write_json(run_directory / "00_trend_advisor" / "result.json",
+                    trend_advisor.model_dump(mode="json"))
+        flagged = sum(1 for c in trend_advisor.shortlist if c.gap_signal)
+        yield _progress_event(
+            run_id=run_id, stage="trend_advisor", service="trend_advisor", status="done",
+            title="Topic chosen from trend analysis",
+            message=f"Shortlisted {len(trend_advisor.shortlist)} rising topic(s) in "
+                    f"{trend_advisor.domain_other_name or trend_advisor.domain}, "
+                    f"{flagged} flagged as recurring gaps.",
+            details={"domain": trend_advisor.domain},
+        )
 
     # ---- Stage 1: Research Discovery ----
     t0 = time.monotonic()
@@ -256,9 +273,10 @@ async def run_pipeline(
         run_id=run_id, run_directory=str(run_directory), request=request,
         discovery=discovery_result, writing=writing_result,
         verification=verification_result, quality_assurance=qa_result, timings=timings,
+        trend_advisor=trend_advisor,
     )
     draft_meta = writing_result.draft_metadata
-    _write_json(run_directory / "metadata.json", {
+    metadata: dict[str, Any] = {
         "run_id": run_id,
         "research_question": request.research_question,
         "timings": timings.model_dump(),
@@ -275,5 +293,12 @@ async def run_pipeline(
         "evidence_limited_sections": draft_meta.evidence_limited_sections,
         "broken_sections": draft_meta.broken_sections,
         "duplicate_sections": draft_meta.duplicate_sections,
-    })
+    }
+    if trend_advisor is not None and trend_advisor.chosen_topic:
+        metadata["chosen_topic"] = trend_advisor.chosen_topic
+        metadata["chosen_topic_gap_flagged"] = any(
+            c.gap_signal for c in trend_advisor.shortlist
+            if c.topic == trend_advisor.chosen_topic
+        )
+    _write_json(run_directory / "metadata.json", metadata)
     yield {"type": "result", "result": result}

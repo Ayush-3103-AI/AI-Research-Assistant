@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field, model_validator
 from shared.contracts.discovery_contract import DiscoveryResult
 from shared.contracts.qa_contract import QualityAssuranceResult
 from shared.contracts.verification_contract import VerificationResult
+from shared.contracts.trend_contract import TrendAdvisorResult
 from shared.contracts.writing_contract import TargetFormat, WritingResult
 
 PublicationType = Literal["conference", "journal", "other"]
@@ -55,6 +56,11 @@ class PipelineResult(BaseModel):
     run_id: str
     run_directory: str
     request: ResearchRequest
+    # Present only when the run was started from the optional Trend & Gap
+    # Advisor (pipeline stage 0) rather than from a question the user typed.
+    # Carried so a finished run answers "why this topic?" as well as "what
+    # did it produce?" — see DECISIONS.md D-031.
+    trend_advisor: TrendAdvisorResult | None = None
     discovery: DiscoveryResult
     writing: WritingResult
     verification: VerificationResult
