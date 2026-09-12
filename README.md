@@ -35,6 +35,20 @@ Answer a few short questions — your research topic, how many papers to include
 - 🔗 **Citation Verification** — checks every reference against real scholarly databases (Crossref, OpenAlex).
 - 🛡️ **Quality Assessment** — an independent, fully deterministic audit of citation integrity and claim-to-evidence alignment.
 
+## 🧭 Not sure what to research yet?
+
+```
+researchgenie-advise
+```
+
+Pick your field — Computer Science/AI/ML, ECE, EEE, Mechanical, Civil, Cloud/DevOps, or type your own — and the Trend & Gap Advisor produces a ranked shortlist of rising topics, each backed by evidence you can check yourself:
+
+- **Publication growth** computed from live OpenAlex counts (how many papers in the last three complete years versus the three before them) — never guessed by the AI.
+- **Recurring research gaps** mined in parallel from what published papers themselves say is still unsolved, flagged only when several independent papers say it.
+- **Hot-but-crowded vs under-explored**, so you can decide whether to compete in a busy area or fill a quiet one.
+
+Ask follow-up questions about any topic, say "go with #2" when you've decided, and your pick auto-fills the research question for the full pipeline — which you can run immediately or come back to later. If a data source or the local model is unreachable, the advisor says so rather than showing you a confident empty result.
+
 ## 📁 What you get
 
 Every run saves a complete, timestamped project folder containing:
@@ -57,4 +71,4 @@ See [TILL_NOW.md](TILL_NOW.md) for current progress and [DECISIONS.md](DECISIONS
 
 ## 🛠️ For developers
 
-This repository *is* the ResearchGenie source — `pip install researchgenie` installs it directly from here. See `DECISIONS.md` for the internal architecture (a four-service pipeline behind one orchestrator) and `pyproject.toml` for the packaging setup.
+This repository *is* the ResearchGenie source — `pip install researchgenie` installs it directly from here. See `DECISIONS.md` for the internal architecture (a four-service pipeline behind one orchestrator, plus an optional Trend & Gap Advisor stage) and `pyproject.toml` for the packaging setup.

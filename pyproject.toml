@@ -25,6 +25,7 @@ dependencies = [
 
 [project.scripts]
 researchgenie = "researchgenie.cli:main"
+researchgenie-advise = "researchgenie.advisor_cli:main"
 
 [tool.setuptools]
 # The pipeline's own service modules (services/research-discovery, etc.)
