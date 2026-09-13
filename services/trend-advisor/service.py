@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import datetime
 import json
-import re
 import sys
 from pathlib import Path
 from typing import AsyncIterator
@@ -27,6 +26,7 @@ from shared.contracts.trend_contract import (  # noqa: E402
     TrendAdvisorRequest, TrendAdvisorResult,
 )
 from shared.utilities import llm_provider  # noqa: E402
+from shared.utilities.run_paths import slugify  # noqa: E402
 
 sys.path.insert(0, str(ROOT / "services" / "research-writing"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -49,11 +49,6 @@ class TrendAdvisorError(RuntimeError):
     """The stage could not produce an honest shortlist. Raised rather than
     yielding an empty or padded result — the whole point of this stage is
     evidence the student can check, so "no evidence" must be visible."""
-
-
-def _slugify(text: str, max_len: int = 60) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug[:max_len] or "trend-advisor-run"
 
 
 async def run_trend_advisor(
@@ -148,7 +143,7 @@ async def run_trend_advisor(
     # Step 2 (memory): every run keeps its own full, timestamped record, the
     # same convention the four pipeline stages already follow.
     root = output_root or DEFAULT_OUTPUT_ROOT
-    run_directory = root / f"{_slugify(request.domain_label)}_{run_id}"
+    run_directory = root / f"{slugify(request.domain_label)}_{run_id}"
     result_path = run_directory / "00_trend_advisor" / "result.json"
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(

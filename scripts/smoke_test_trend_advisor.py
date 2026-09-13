@@ -4,11 +4,12 @@ Usage (from the project venv):
     python scripts/smoke_test_trend_advisor.py CS_AI_ML
     python scripts/smoke_test_trend_advisor.py Other "synthetic biology"
 
-Streams each progress event, prints the ranked shortlist with its real
-evidence, then drives the rest of the advisor CLI's own code path on it:
-parse_pick on live shortlist data, _research_question_for, and both
-hand-off branches — the second one running the real pipeline. Only the
-Prompt/Confirm turns of _collect_domain and _converge stay manual.
+Runs the advisor through the CLI's own `_run_advisor`, prints the ranked
+shortlist with its real evidence, then drives the rest of the advisor CLI's
+code path on it: parse_pick on live shortlist data, _research_question_for,
+and both hand-off branches — the second one running the real pipeline and
+asserting it left exactly one run folder. Only the Prompt/Confirm turns of
+_collect_domain and _converge stay manual.
 
 Not part of the automated suite: needs network for OpenAlex/arXiv and a
 running Ollama for the gap-mining swarm. Expect the pipeline hand-off to
@@ -18,7 +19,6 @@ take a long time on modest hardware (see smoke_test_full_pipeline.py).
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import sys
 from pathlib import Path
 from uuid import uuid4
@@ -28,48 +28,37 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from rich.console import Console  # noqa: E402
+
 from orchestrator.pipeline import run_pipeline  # noqa: E402
 from researchgenie.advisor_cli import (  # noqa: E402
-    _research_question_for, parse_pick, with_chosen_topic,
+    _research_question_for, _run_advisor, parse_pick, with_chosen_topic,
 )
 from shared.contracts.pipeline_contract import ResearchRequest  # noqa: E402
 from shared.contracts.trend_contract import TrendAdvisorRequest  # noqa: E402
 from shared.utilities.llm_provider import LLMProviderError  # noqa: E402
 
 
-def _load_service():
-    path = ROOT / "services" / "trend-advisor" / "service.py"
-    spec = importlib.util.spec_from_file_location("smoke_trend_advisor", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 async def main(domain: str, other_name: str | None) -> None:
-    service = _load_service()
     request = TrendAdvisorRequest(domain=domain, domain_other_name=other_name)
 
+    # The CLI's own entry into the service, not a second copy of it: this is
+    # the code path a student actually runs (ticket #8's criterion).
     run_id = uuid4().hex
-    result = None
-    advisor_directory = None
-    async for event in service.run_trend_advisor(request, run_id=run_id):
-        if event["type"] == "result":
-            result = event["result"]
-            advisor_directory = event["run_directory"]
-            print(f"\nSaved to: {advisor_directory}")
-        else:
-            print(f"[{event['stage']}/{event['state']}] {event['message']}")
+    found = await asyncio.to_thread(_run_advisor, Console(legacy_windows=False),
+                                    request, run_id)
+    if found is None:
+        raise SystemExit("\nFAILED: the advisor produced no shortlist — see the "
+                         "error above.")
+    result, advisor_directory = found
+    print(f"\nSaved to: {advisor_directory}")
 
-    if result is None:
-        raise SystemExit("\nFAILED: the advisor stream ended without a result event.")
     if not result.shortlist:
         raise SystemExit("\nFAILED: the advisor returned an empty shortlist.")
 
     print("\n=== SHORTLIST ===")
     for position, c in enumerate(result.shortlist, start=1):
-        flag = "RECURRING GAP" if c.gap_signal else (
-            "hot but crowded" if c.is_crowded else "under-explored")
+        flag = c.signal_label.upper() if c.gap_signal else c.signal_label
         print(f"\n{position}. {c.topic}  [{flag}]")
         print(f"   growth {c.growth_metric}x  ({c.prior_papers:,} -> {c.paper_count:,} papers)")
         if c.arxiv_recent_count is None:

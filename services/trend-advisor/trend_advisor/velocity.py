@@ -264,7 +264,8 @@ async def find_rising_topics(
     production callers leave it None.
     """
     subfields = DOMAIN_SUBFIELDS.get(domain)
-    search = None if subfields else (domain_other_name or domain)
+    label = domain_other_name or domain
+    search = None if subfields else label
     recent_window, prior_window = windows(current_year)
 
     async with httpx.AsyncClient(timeout=60, transport=transport,
@@ -283,7 +284,6 @@ async def find_rising_topics(
 
         ranked = rank_by_growth(recent=recent, prior=prior, limit=limit)
         if len(ranked) < MIN_TOPICS_FOR_SHORTLIST:
-            label = domain_other_name or domain
             raise VelocityUnavailable(
                 f"OpenAlex returned too few rankable topics for '{label}' "
                 f"({len(ranked)} with at least {MIN_RECENT_WORKS} recent works). "
@@ -327,7 +327,7 @@ async def find_rising_topics(
             if len(ranked) < MIN_TOPICS_FOR_SHORTLIST:
                 raise VelocityUnavailable(
                     f"Merging the OpenAlex and arXiv candidates for "
-                    f"'{domain_other_name or domain}' left only {len(ranked)} "
+                    f"'{label}' left only {len(ranked)} "
                     "distinct topic(s). No shortlist can be produced honestly "
                     "for this domain."
                 )

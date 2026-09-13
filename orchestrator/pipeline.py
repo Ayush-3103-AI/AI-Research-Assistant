@@ -8,7 +8,6 @@ from __future__ import annotations
 import datetime
 import importlib.util
 import json
-import re
 import sys
 import time
 from pathlib import Path
@@ -29,6 +28,7 @@ from shared.contracts.trend_contract import (  # noqa: E402
 from shared.contracts.verification_contract import VerificationRequest  # noqa: E402
 from shared.contracts.writing_contract import WritingRequest  # noqa: E402
 from shared.utilities import latex_export  # noqa: E402
+from shared.utilities.run_paths import slugify  # noqa: E402
 
 
 def _load_service(name: str, relative_path: str):
@@ -80,11 +80,6 @@ _STAGE_EMOJI = {
 class PipelineError(RuntimeError):
     """Raised when a stage fails to produce output; the orchestrator stops
     rather than passing partial/fabricated data to the next stage."""
-
-
-def _slugify(text: str, max_len: int = 60) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
-    return slug[:max_len] or "research-run"
 
 
 def _progress_event(
@@ -149,7 +144,7 @@ async def run_pipeline(
     run leaves one folder (D-034)."""
     output_root = output_root or DEFAULT_OUTPUT_ROOT
     run_id = run_id or uuid4().hex
-    run_directory = output_root / f"{_slugify(request.research_question)}_{run_id}"
+    run_directory = output_root / f"{slugify(request.research_question)}_{run_id}"
     if advisor_directory:
         advisor_dir = Path(advisor_directory)
         # Skipped unless the reported directory exists and carries this
@@ -164,12 +159,12 @@ async def run_pipeline(
     if trend_advisor is not None:
         _write_json(run_directory / "00_trend_advisor" / "result.json",
                     trend_advisor.model_dump(mode="json"))
-        flagged = sum(1 for c in trend_advisor.shortlist if c.gap_signal)
+        flagged = trend_advisor.gap_flagged_count
         yield _progress_event(
             run_id=run_id, stage="trend_advisor", service="trend_advisor", status="done",
             title="Topic chosen from trend analysis",
             message=f"Shortlisted {len(trend_advisor.shortlist)} rising topic(s) in "
-                    f"{trend_advisor.domain_other_name or trend_advisor.domain}, "
+                    f"{trend_advisor.domain_label}, "
                     f"{flagged} flagged as recurring gaps.",
             details={"domain": trend_advisor.domain},
         )
@@ -325,10 +320,8 @@ async def run_pipeline(
     }
     if trend_advisor is not None and trend_advisor.chosen_topic:
         metadata["chosen_topic"] = trend_advisor.chosen_topic
-        metadata["chosen_topic_gap_flagged"] = any(
-            c.gap_signal for c in trend_advisor.shortlist
-            if c.topic == trend_advisor.chosen_topic
-        )
+        chosen = trend_advisor.chosen_candidate
+        metadata["chosen_topic_gap_flagged"] = chosen is not None and chosen.gap_signal
     _write_json(run_directory / "metadata.json", metadata)
     yield {"type": "result", "result": result}
 

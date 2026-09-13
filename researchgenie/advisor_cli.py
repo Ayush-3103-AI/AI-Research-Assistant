@@ -159,12 +159,8 @@ def _render_shortlist(console: Console, result: TrendAdvisorResult) -> None:
     table.add_column("Recent papers", justify="right")
     table.add_column("Signal")
     for position, c in enumerate(result.shortlist, start=1):
-        if c.gap_signal:
-            signal = f"[{SECONDARY}]recurring gap[/{SECONDARY}]"
-        elif c.is_crowded:
-            signal = f"[{MUTED}]hot but crowded[/{MUTED}]"
-        else:
-            signal = f"[{MUTED}]under-explored[/{MUTED}]"
+        style = SECONDARY if c.gap_signal else MUTED
+        signal = f"[{style}]{c.signal_label}[/{style}]"
         table.add_row(str(position), c.topic, f"{c.growth_metric}x",
                       f"{c.paper_count:,}", signal)
     console.print()

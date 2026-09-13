@@ -120,6 +120,17 @@ class TopicCandidate(BaseModel):
         """A high-volume topic: competing here means competing with many."""
         return self.paper_count >= CROWDED_PAPER_COUNT
 
+    @property
+    def signal_label(self) -> str:
+        """The one-phrase reading of this topic's signals (user story 5).
+
+        Lives here so the CLI table and the smoke runner cannot disagree
+        about what a given combination of flags is called.
+        """
+        if self.gap_signal:
+            return "recurring gap"
+        return "hot but crowded" if self.is_crowded else "under-explored"
+
 
 class TrendAdvisorResult(BaseModel):
     """Output of the Trend & Gap Advisor Service."""
@@ -138,3 +149,23 @@ class TrendAdvisorResult(BaseModel):
     # Surfaced, not swallowed: an unreachable arXiv or a thin domain must be
     # visible to the student rather than presented as confident output.
     warnings: list[str] = Field(default_factory=list)
+
+    @property
+    def domain_label(self) -> str:
+        """What to call this domain in output — the same rule as on the
+        request, so a result read back from disk labels itself identically."""
+        return self.domain_other_name or self.domain
+
+    @property
+    def gap_flagged_count(self) -> int:
+        return sum(1 for c in self.shortlist if c.gap_signal)
+
+    @property
+    def chosen_candidate(self) -> TopicCandidate | None:
+        """The shortlist entry the student locked in, matched by name.
+
+        None when nothing was picked, and also when the named topic is not
+        in this shortlist — callers must not report a stranger's evidence
+        as the chosen topic's.
+        """
+        return next((c for c in self.shortlist if c.topic == self.chosen_topic), None)
