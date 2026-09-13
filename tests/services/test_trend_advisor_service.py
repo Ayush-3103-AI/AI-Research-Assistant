@@ -163,6 +163,29 @@ def test_run_output_is_saved_to_its_own_timestamped_folder(tmp_path):
         result.shortlist[0].topic
 
 
+def test_two_runs_keep_two_separate_records(tmp_path):
+    """Step 2 (memory) claims every run keeps its own full record. Without a
+    distinct run id per run the second call would overwrite the first, and a
+    student comparing this week's shortlist with last week's would find only
+    one of them."""
+    request = TrendAdvisorRequest(domain="MECHANICAL")
+    _, first = asyncio.run(_collect(request, output_root=tmp_path, model=_FakeModel()))
+    _, second = asyncio.run(_collect(request, output_root=tmp_path, model=_FakeModel()))
+
+    saved = sorted(tmp_path.glob("mechanical_*/00_trend_advisor/result.json"))
+    assert len(saved) == 2, "the second run overwrote the first run's record"
+
+    # Run ids are random, so the two files sort in no meaningful order —
+    # each is checked on its own rather than paired with a call by position.
+    expected = {len(first.shortlist), len(second.shortlist)}
+    for path in saved:
+        record = json.loads(path.read_text(encoding="utf-8"))
+        # Each record is the full shortlist with its evidence, not a stub.
+        assert len(record["shortlist"]) in expected
+        assert all(topic["example_papers"] for topic in record["shortlist"])
+        assert record["generated_at"]
+
+
 def test_free_text_domain_warns_that_results_are_less_precise(tmp_path):
     _, result = asyncio.run(_collect(
         TrendAdvisorRequest(domain="Other", domain_other_name="synthetic biology"),

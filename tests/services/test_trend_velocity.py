@@ -8,6 +8,7 @@ test_trend_velocity_live.py and skips without network.
 """
 
 import asyncio
+import re
 import sys
 from pathlib import Path
 
@@ -391,3 +392,51 @@ def test_arxiv_volume_breaks_a_tie_between_equally_growing_topics():
     by_topic = {c.topic: c for c in candidates}
     assert by_topic["Alpha"].growth_metric == by_topic["Beta"].growth_metric
     assert [c.topic for c in candidates][:2] == ["Beta", "Alpha"]
+
+
+# --- the domain actually steers the query ----------------------------------
+
+def _per_domain_transport() -> httpx.MockTransport:
+    """OpenAlex, but every topic is named after the subfield it was asked
+    for — so a domain whose mapping never reaches the wire comes back with
+    another domain's topics, and the assertions below catch it."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = request.url.params
+        if "arxiv.org" in str(request.url):
+            return httpx.Response(200, text=_arxiv_feed(("A Preprint", 2024)))
+        if "group_by" in params:
+            filters = params["filter"]
+            subfields = re.findall(r"subfields/(\d{4})", filters)
+            recent = int(filters.split("publication_year:")[1].split("-")[0]) >= 2023
+            return httpx.Response(200, json=_groups({
+                f"T{sid}": (f"Topic of subfield {sid}", (900 - i * 100) if recent else 300)
+                for i, sid in enumerate(subfields)
+            }))
+        return httpx.Response(200, json={"results": [_work("A Paper")]})
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.parametrize("domain", sorted(DOMAIN_SUBFIELDS))
+def test_every_curated_domain_returns_a_non_empty_ranked_shortlist(domain):
+    candidates = asyncio.run(find_rising_topics(
+        domain, limit=8, transport=_per_domain_transport()))
+
+    assert candidates, f"{domain} produced no candidates"
+    growths = [c.growth_metric for c in candidates]
+    assert growths == sorted(growths, reverse=True), f"{domain} came back unranked"
+    assert all(c.example_papers for c in candidates)
+    # Every topic it returned came from a subfield this domain actually maps to.
+    assert {c.topic_id.removeprefix("T") for c in candidates} <= set(DOMAIN_SUBFIELDS[domain])
+
+
+def test_two_domains_produce_different_top_candidates():
+    """The domain -> subfield table is only worth having if the domain
+    changes the answer. A table that collapsed to one field, or a domain
+    argument dropped on its way to the query, both survive every other test
+    in this file."""
+    transport = _per_domain_transport()
+    mechanical = asyncio.run(find_rising_topics("MECHANICAL", limit=8, transport=transport))
+    civil = asyncio.run(find_rising_topics("CIVIL", limit=8, transport=transport))
+
+    assert mechanical[0].topic != civil[0].topic
+    assert {c.topic for c in mechanical}.isdisjoint({c.topic for c in civil})

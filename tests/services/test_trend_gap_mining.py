@@ -220,3 +220,47 @@ def test_abstract_is_used_when_no_full_text_could_be_retrieved():
     asyncio.run(mine_gaps([candidate], model=model))
 
     assert "The abstract is all we have." in model.prompts[0]
+
+
+class _BarrierModel:
+    """Every worker must arrive before any is allowed to answer.
+
+    A sequential implementation deadlocks on this: worker 1 waits for a
+    worker 2 that is never started, and the test's own wait_for is what
+    eventually fails it. So a fan-out that regresses into a `for` loop is
+    caught here — which is the one claim the other tests in this file cannot
+    make, since they all pass just as happily against a sequential loop.
+    """
+
+    def __init__(self, workers: int):
+        self._barrier = asyncio.Barrier(workers)
+        self.peak_in_flight = 0
+        self._in_flight = 0
+
+    async def generate_structured(self, *, system_prompt, user_prompt, response_model):
+        self._in_flight += 1
+        self.peak_in_flight = max(self.peak_in_flight, self._in_flight)
+        await self._barrier.wait()
+        self._in_flight -= 1
+        return response_model.model_validate({"gap_statements": []})
+
+
+def test_workers_run_concurrently_rather_than_one_after_another():
+    """Course skill 5 (Swarms) is the whole claim of this module: one worker
+    per paper, all in flight together. Two topics x the per-topic cap, so the
+    fan-out has to cross topics too, not just fan out within one."""
+    candidates = [
+        _candidate("Topic One", ["Paper A", "Paper B"], topic_id="T1"),
+        _candidate("Topic Two", ["Paper C", "Paper D"], topic_id="T2"),
+    ]
+    expected_workers = 2 * MAX_PAPERS_PER_TOPIC
+    model = _BarrierModel(expected_workers)
+
+    async def run():
+        # The barrier is the real assertion; the timeout only stops a
+        # sequential implementation from hanging the suite forever.
+        return await asyncio.wait_for(mine_gaps(candidates, model=model), timeout=10)
+
+    asyncio.run(run())
+
+    assert model.peak_in_flight == expected_workers
