@@ -131,16 +131,20 @@ def _provider_label(config: rg_config.Config) -> str:
 
 
 async def _run_research(console: Console, request: ResearchRequest,
-                        trend_advisor=None) -> None:
+                        trend_advisor=None, run_id: str | None = None,
+                        advisor_directory: str | None = None) -> None:
     """trend_advisor is the optional Stage 0 result, passed only by the
-    `researchgenie-advise` flow — see orchestrator/pipeline.py."""
+    `researchgenie-advise` flow — see orchestrator/pipeline.py. run_id and
+    advisor_directory come with it, so Stage 0's folder becomes this run's."""
     view = PipelineView(include_trend_advisor=trend_advisor is not None)
     result = None
     error: PipelineError | None = None
 
     with Live(view.render(), console=console, refresh_per_second=6) as live:
         try:
-            async for event in run_pipeline(request, trend_advisor=trend_advisor):
+            async for event in run_pipeline(request, trend_advisor=trend_advisor,
+                                            run_id=run_id,
+                                            advisor_directory=advisor_directory):
                 if event["type"] == "result":
                     result = event["result"]
                 else:

@@ -18,6 +18,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -276,14 +277,16 @@ def _converge(console: Console, result: TrendAdvisorResult) -> TopicCandidate | 
                           f"ask again, or pick a topic.[/{MUTED}]")
 
 
-def _run_advisor(console: Console, request: TrendAdvisorRequest) -> TrendAdvisorResult | None:
+def _run_advisor(console: Console, request: TrendAdvisorRequest,
+                 run_id: str) -> tuple[TrendAdvisorResult, str] | None:
+    """The shortlist and the folder it was saved in, or None on failure."""
     service = _load_advisor_service()
 
-    async def collect() -> TrendAdvisorResult | None:
+    async def collect() -> tuple[TrendAdvisorResult, str] | None:
         found = None
-        async for event in service.run_trend_advisor(request):
+        async for event in service.run_trend_advisor(request, run_id=run_id):
             if event["type"] == "result":
-                found = event["result"]
+                found = (event["result"], event["run_directory"])
             else:
                 console.print(f"[{MUTED}]{event['message']}[/{MUTED}]")
         return found
@@ -309,9 +312,12 @@ def main() -> None:
     render_banner(console)
     console.print(f"[{OK}]Trend & Gap Advisor.[/{OK}]")
 
-    result = _run_advisor(console, _collect_domain(console))
-    if result is None:
+    # One run_id from Stage 0 onward, so a chained run leaves one folder.
+    run_id = uuid4().hex
+    found = _run_advisor(console, _collect_domain(console), run_id)
+    if found is None:
         sys.exit(1)
+    result, advisor_directory = found
 
     _render_shortlist(console, result)
     chosen = _converge(console, result)
@@ -347,6 +353,7 @@ def main() -> None:
         # student rewrote the question above into something looser.
         ResearchRequest(research_question=question, keywords=[chosen.topic]),
         trend_advisor=with_chosen_topic(result, chosen),
+        run_id=run_id, advisor_directory=advisor_directory,
     ))
 
 

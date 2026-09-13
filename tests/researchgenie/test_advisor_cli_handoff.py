@@ -45,9 +45,16 @@ def handoff(monkeypatch):
     whatever it passed to the pipeline."""
     captured: dict = {}
 
-    async def fake_run_research(console, request, trend_advisor=None):
+    async def fake_run_research(console, request, trend_advisor=None,
+                                run_id=None, advisor_directory=None):
         captured["request"] = request
         captured["trend_advisor"] = trend_advisor
+        captured["run_id"] = run_id
+        captured["advisor_directory"] = advisor_directory
+
+    def fake_run_advisor(console, request, run_id):
+        captured["advisor_run_id"] = run_id
+        return result, f"outputs/cs-ai-ml_{run_id}"
 
     async def fake_question(candidate):
         return "How do digital twins affect maintenance cost?"
@@ -61,7 +68,7 @@ def handoff(monkeypatch):
     monkeypatch.setattr(advisor_cli, "render_banner", lambda console: None)
     monkeypatch.setattr(advisor_cli, "_collect_domain",
                         lambda console: TrendAdvisorRequest(domain="CS_AI_ML"))
-    monkeypatch.setattr(advisor_cli, "_run_advisor", lambda console, request: result)
+    monkeypatch.setattr(advisor_cli, "_run_advisor", fake_run_advisor)
     monkeypatch.setattr(advisor_cli, "_render_shortlist", lambda console, r: None)
     monkeypatch.setattr(advisor_cli, "_converge", lambda console, r: r.shortlist[1])
     monkeypatch.setattr(advisor_cli, "_research_question_for", fake_question)
@@ -93,6 +100,15 @@ def test_the_advisor_result_travels_as_optional_stage_zero(handoff):
     assert stage_zero.chosen_topic == CHOSEN
     # The topics not picked ride along as the context for the decision.
     assert len(stage_zero.shortlist) == 3
+
+
+def test_the_advisor_run_id_and_folder_reach_the_pipeline(handoff):
+    """One run, one folder: the pipeline must be told which run_id Stage 0
+    already used and where it wrote, or the CLI leaves two directories per
+    chained run (review finding against spec line 49)."""
+    advisor_cli.main()
+    assert handoff["run_id"] == handoff["advisor_run_id"]
+    assert handoff["advisor_directory"] == f"outputs/cs-ai-ml_{handoff['run_id']}"
 
 
 def test_declining_the_pipeline_run_starts_no_run(handoff, monkeypatch):
@@ -195,7 +211,7 @@ def test_a_run_started_from_the_advisor_shows_the_stage_zero_row(monkeypatch):
     from researchgenie import cli
     seen: dict = {}
 
-    async def fake_run_pipeline(request, trend_advisor=None):
+    async def fake_run_pipeline(request, trend_advisor=None, **kwargs):
         seen["trend_advisor"] = trend_advisor
         yield {"type": "progress", "stage": "trend_advisor", "status": "done",
                "message": "picked"}
@@ -222,7 +238,7 @@ def test_a_run_started_from_the_advisor_shows_the_stage_zero_row(monkeypatch):
 def test_a_plain_run_has_no_stage_zero_row(monkeypatch):
     from researchgenie import cli
 
-    async def fake_run_pipeline(request, trend_advisor=None):
+    async def fake_run_pipeline(request, trend_advisor=None, **kwargs):
         yield {"type": "progress", "stage": "discovery", "status": "running",
                "message": "searching"}
         raise cli.PipelineError("stop here — the view is what's under test")

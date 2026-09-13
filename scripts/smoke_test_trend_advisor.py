@@ -21,6 +21,7 @@ import asyncio
 import importlib.util
 import sys
 from pathlib import Path
+from uuid import uuid4
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -49,11 +50,14 @@ async def main(domain: str, other_name: str | None) -> None:
     service = _load_service()
     request = TrendAdvisorRequest(domain=domain, domain_other_name=other_name)
 
+    run_id = uuid4().hex
     result = None
-    async for event in service.run_trend_advisor(request):
+    advisor_directory = None
+    async for event in service.run_trend_advisor(request, run_id=run_id):
         if event["type"] == "result":
             result = event["result"]
-            print(f"\nSaved to: {event['run_directory']}")
+            advisor_directory = event["run_directory"]
+            print(f"\nSaved to: {advisor_directory}")
         else:
             print(f"[{event['stage']}/{event['state']}] {event['message']}")
 
@@ -106,11 +110,14 @@ async def main(domain: str, other_name: str | None) -> None:
     completed = False
     async for event in run_pipeline(
         ResearchRequest(research_question=question, keywords=[top.topic]),
-        trend_advisor=handed_off,
+        trend_advisor=handed_off, run_id=run_id, advisor_directory=advisor_directory,
     ):
         if event["type"] == "result":
             completed = True
             print(f"\nrun directory: {event['result'].run_directory}")
+            if Path(advisor_directory).exists():
+                raise SystemExit("\nFAILED: the advisor's own folder was left beside "
+                                 "the pipeline's run directory (two folders, one run).")
         else:
             print(f"{event['emoji']} [{event['stage']}] {event['message']}")
     if not completed:

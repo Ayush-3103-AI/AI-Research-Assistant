@@ -132,6 +132,7 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
 async def run_pipeline(
     request: ResearchRequest, output_root: Path | None = None, run_id: str | None = None,
     trend_advisor: TrendAdvisorResult | None = None,
+    advisor_directory: Path | str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Yields standardized progress events, then a final
     {"type": "result", "result": PipelineResult} event. Raises
@@ -140,10 +141,22 @@ async def run_pipeline(
     run_id is normally left to be generated here, but callers that need to
     know the run_id before the first event arrives (e.g. the async
     POST /research/runs API endpoint, which must return a run_id to the
-    client immediately) may pass one in explicitly."""
+    client immediately) may pass one in explicitly.
+
+    advisor_directory is the folder Stage 0 already wrote under this same
+    run_id (the advisor names it after the domain, since only the caller
+    knows the chosen topic); it is renamed to this run's directory so one
+    run leaves one folder (D-034)."""
     output_root = output_root or DEFAULT_OUTPUT_ROOT
     run_id = run_id or uuid4().hex
     run_directory = output_root / f"{_slugify(request.research_question)}_{run_id}"
+    if advisor_directory:
+        advisor_dir = Path(advisor_directory)
+        # Skipped unless the reported directory exists and carries this
+        # run_id, so a caller-supplied path is never moved by mistake.
+        if (advisor_dir.is_dir() and advisor_dir.name.endswith(f"_{run_id}")
+                and advisor_dir != run_directory and not run_directory.exists()):
+            advisor_dir.rename(run_directory)
     run_directory.mkdir(parents=True, exist_ok=True)
     _write_json(run_directory / "00_request.json", request.model_dump(mode="json"))
 
@@ -381,18 +394,9 @@ async def run_advisor_then_pipeline(
     request = (request or ResearchRequest(research_question=topic)).model_copy(
         update={"research_question": topic})
 
-    # One run, one folder: the advisor named its own run directory after the
-    # domain, so rename it to the directory run_pipeline is about to use and
-    # let Stage 0's artifacts stay inside it as 00_trend_advisor/.
-    if advisor_directory:
-        advisor_dir = Path(advisor_directory)
-        merged_dir = advisor_dir.parent / f"{_slugify(topic)}_{run_id}"
-        if (advisor_dir.is_dir() and advisor_dir.name.endswith(f"_{run_id}")
-                and merged_dir != advisor_dir and not merged_dir.exists()):
-            advisor_dir.rename(merged_dir)
-
     async for event in run_pipeline(
         request, output_root=output_root, run_id=run_id,
         trend_advisor=advisor_result.model_copy(update={"chosen_topic": topic}),
+        advisor_directory=advisor_directory,
     ):
         yield event

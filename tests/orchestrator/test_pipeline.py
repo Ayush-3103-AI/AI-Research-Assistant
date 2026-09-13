@@ -225,6 +225,48 @@ def test_stage_zero_is_persisted_into_the_same_run_folder(tmp_path):
     assert result.trend_advisor.shortlist[0].topic == "Edge Inference"
 
 
+def test_run_pipeline_adopts_the_advisors_directory(tmp_path):
+    """The CLI runs Stage 0 itself, then hands run_pipeline the folder the
+    advisor wrote under the same run_id; that folder must become the run's."""
+    run_id = "abc123"
+    advisor_dir = tmp_path / f"cs-ai-ml_{run_id}"
+    (advisor_dir / "00_trend_advisor").mkdir(parents=True)
+    (advisor_dir / "00_trend_advisor" / "result.json").write_text("{}", encoding="utf-8")
+    request = ResearchRequest(research_question="How does edge inference scale?", corpus_size=6)
+
+    async def run():
+        async for event in orchestrator_pipeline.run_pipeline(
+            request, output_root=tmp_path, run_id=run_id,
+            trend_advisor=_fake_trend_result(), advisor_directory=advisor_dir,
+        ):
+            if event["type"] == "result":
+                return event["result"]
+
+    result = asyncio.run(run())
+
+    assert [p.name for p in tmp_path.iterdir() if p.is_dir()] == [Path(result.run_directory).name]
+    assert Path(result.run_directory).name == f"how-does-edge-inference-scale_{run_id}"
+    assert not advisor_dir.exists()
+
+
+def test_run_pipeline_never_moves_a_folder_from_another_run(tmp_path):
+    other = tmp_path / "cs-ai-ml_someoneelse"
+    other.mkdir()
+    request = ResearchRequest(research_question="What is X?", corpus_size=6)
+
+    async def run():
+        async for event in orchestrator_pipeline.run_pipeline(
+            request, output_root=tmp_path, run_id="abc123",
+            trend_advisor=_fake_trend_result(), advisor_directory=other,
+        ):
+            if event["type"] == "result":
+                return event["result"]
+
+    asyncio.run(run())
+
+    assert other.exists()
+
+
 def test_stage_zero_is_reported_in_the_audit_trail(tmp_path):
     request = ResearchRequest(research_question="How does edge inference scale?", corpus_size=6)
 
