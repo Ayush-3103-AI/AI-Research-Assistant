@@ -52,8 +52,11 @@ curl http://localhost:11434/api/version
 
 ## 3. Setup
 
+This branch lives on the fork, not on `TheIntruder007/AI-Research-Assistant`.
+Both repos are public, so no access request is needed — just clone the fork.
+
 ```bash
-git clone https://github.com/TheIntruder007/AI-Research-Assistant.git
+git clone https://github.com/Ayush-3103-AI/AI-Research-Assistant.git
 cd AI-Research-Assistant
 git checkout feature/trend-gap-advisor
 
