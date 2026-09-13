@@ -109,3 +109,80 @@ def test_attempt_automatic_install_on_windows_with_winget_runs_it(monkeypatch):
     result = om.attempt_automatic_install()
     assert result.attempted is True
     assert result.succeeded is True
+
+
+# --- Install timeout (D-042) ------------------------------------------------
+# These pin the one thing the mock-only tests above could never catch: the
+# real Windows installer is ~1.5GB, so the timeout has to be big enough to
+# actually download and install it. Measured 2026-09-13 against
+# OllamaSetup.exe v0.34.0 (1501.3 MB) after the old 600s value killed a real
+# winget install mid-download on a clean machine.
+
+
+def _record_run(monkeypatch, returncode=0, raises=None):
+    """Capture the kwargs attempt_automatic_install() actually passes to
+    subprocess.run — the existing tests use `lambda *a, **k`, which silently
+    discards exactly the argument that was wrong."""
+    captured = {}
+
+    class _Result:
+        stderr = ""
+
+    def fake_run(*args, **kwargs):
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        if raises is not None:
+            raise raises
+        result = _Result()
+        result.returncode = returncode
+        return result
+
+    monkeypatch.setattr(om.subprocess, "run", fake_run)
+    return captured
+
+
+def test_install_timeout_allows_for_a_multi_gigabyte_download():
+    # 1.5GB at a conservative-but-realistic 1 MB/s is ~1500s of download
+    # before Inno Setup has unpacked a single byte. Anything below this
+    # floor cannot finish on an ordinary connection.
+    assert om.INSTALL_TIMEOUT_SECONDS >= 1800
+
+
+def test_windows_install_uses_the_shared_install_timeout(monkeypatch):
+    monkeypatch.setattr(om.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(om.shutil, "which", lambda name: "winget.exe" if name == "winget" else None)
+    captured = _record_run(monkeypatch)
+
+    result = om.attempt_automatic_install()
+
+    assert result.succeeded is True
+    assert captured["kwargs"]["timeout"] == om.INSTALL_TIMEOUT_SECONDS
+
+
+def test_macos_install_uses_the_shared_install_timeout(monkeypatch):
+    monkeypatch.setattr(om.platform, "system", lambda: "Darwin")
+    monkeypatch.setattr(om.shutil, "which", lambda name: "brew" if name == "brew" else None)
+    captured = _record_run(monkeypatch)
+
+    result = om.attempt_automatic_install()
+
+    assert result.succeeded is True
+    assert captured["kwargs"]["timeout"] == om.INSTALL_TIMEOUT_SECONDS
+
+
+def test_install_timeout_is_reported_as_a_timeout_not_a_flat_failure(monkeypatch):
+    """A timeout means "not finished yet", which is not the same as "this
+    machine cannot install Ollama" — the old message said only "failed",
+    leaving a user on a slow link with no idea the download was fine."""
+    monkeypatch.setattr(om.platform, "system", lambda: "Windows")
+    monkeypatch.setattr(om.shutil, "which", lambda name: "winget.exe" if name == "winget" else None)
+    _record_run(monkeypatch, raises=om.subprocess.TimeoutExpired(cmd="winget", timeout=1800))
+
+    result = om.attempt_automatic_install()
+
+    assert result.attempted is True
+    assert result.succeeded is False
+    assert "timed out" in result.message.lower()
+    # Must point at the real cause (a big download that needs more time),
+    # and give the user somewhere to go.
+    assert "ollama.com" in result.message

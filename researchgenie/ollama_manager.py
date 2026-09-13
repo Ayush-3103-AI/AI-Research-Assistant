@@ -63,11 +63,33 @@ def start_ollama_server() -> bool:
         return False
 
 
+# The Windows installer is a ~1.5GB download (OllamaSetup.exe v0.34.0 measured
+# at 1501.3 MB on 2026-09-13), and Homebrew's bottle is the same order of
+# magnitude. The old 600s value could not cover the download on an ordinary
+# connection, let alone the install that follows it, so a real winget run on a
+# clean machine was killed mid-download and reported as a flat failure. One
+# hour is generous enough to be about the connection, not the clock.
+INSTALL_TIMEOUT_SECONDS = 3600
+
+
 @dataclass
 class InstallAttempt:
     attempted: bool
     succeeded: bool
     message: str
+
+
+def _timeout_message(tool: str, download_url: str) -> str:
+    """A timeout is "not finished yet", not "this machine cannot install
+    Ollama" — say so, or a user on a slow link gives up on a download that
+    was progressing perfectly well."""
+    return (
+        f"{tool} install timed out after {INSTALL_TIMEOUT_SECONDS}s. The Ollama "
+        "installer is a ~1.5GB download, so this usually means a slow connection "
+        "rather than a broken install — it may well have been progressing fine. "
+        f"Re-run to resume, or install it directly from {download_url}, then "
+        "restart researchgenie."
+    )
 
 
 def attempt_automatic_install() -> InstallAttempt:
@@ -85,14 +107,19 @@ def attempt_automatic_install() -> InstallAttempt:
                 result = subprocess.run(
                     ["winget", "install", "--id", "Ollama.Ollama", "-e",
                      "--accept-package-agreements", "--accept-source-agreements"],
-                    capture_output=True, text=True, timeout=600,
+                    capture_output=True, text=True, timeout=INSTALL_TIMEOUT_SECONDS,
                 )
                 if result.returncode == 0:
                     return InstallAttempt(True, True, "Installed via winget.")
                 return InstallAttempt(
                     True, False, f"winget install failed: {result.stderr.strip()[:300]}"
                 )
-            except (OSError, subprocess.TimeoutExpired) as error:
+            except subprocess.TimeoutExpired:
+                return InstallAttempt(
+                    True, False,
+                    _timeout_message("winget", "https://ollama.com/download/windows"),
+                )
+            except OSError as error:
                 return InstallAttempt(True, False, f"winget install failed: {error}")
         return InstallAttempt(
             False, False,
@@ -104,14 +131,20 @@ def attempt_automatic_install() -> InstallAttempt:
         if shutil.which("brew"):
             try:
                 result = subprocess.run(
-                    ["brew", "install", "ollama"], capture_output=True, text=True, timeout=600,
+                    ["brew", "install", "ollama"], capture_output=True, text=True,
+                    timeout=INSTALL_TIMEOUT_SECONDS,
                 )
                 if result.returncode == 0:
                     return InstallAttempt(True, True, "Installed via Homebrew.")
                 return InstallAttempt(
                     True, False, f"brew install failed: {result.stderr.strip()[:300]}"
                 )
-            except (OSError, subprocess.TimeoutExpired) as error:
+            except subprocess.TimeoutExpired:
+                return InstallAttempt(
+                    True, False,
+                    _timeout_message("brew", "https://ollama.com/download/mac"),
+                )
+            except OSError as error:
                 return InstallAttempt(True, False, f"brew install failed: {error}")
         return InstallAttempt(
             False, False,
