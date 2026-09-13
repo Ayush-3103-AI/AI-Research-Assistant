@@ -2,11 +2,14 @@
 
 from hashlib import sha256
 from pathlib import Path
-from typing import Literal, cast
+from typing import cast, get_args
 
 import yaml
 
-from writing.schemas import PaperDocument, PartialPaperMetadata
+from writing.schemas import EvidenceDepth, PaperDocument, PartialPaperMetadata
+
+# Derived from the type rather than restated, so a new depth is one edit.
+EVIDENCE_DEPTHS = set(get_args(EvidenceDepth))
 
 
 class DocumentRegistryError(ValueError):
@@ -15,7 +18,7 @@ class DocumentRegistryError(ValueError):
 
 def _front_matter(
     text: str, path: Path
-) -> tuple[PartialPaperMetadata, Literal["full_text", "abstract"]]:
+) -> tuple[PartialPaperMetadata, EvidenceDepth]:
     lines = text.splitlines()
     if not lines or lines[0].strip() != "---":
         return PartialPaperMetadata(), "full_text"
@@ -33,15 +36,15 @@ def _front_matter(
         raise DocumentRegistryError(f"front matter must be a mapping: {path}")
     metadata = cast(dict[object, object], loaded)
     raw_evidence_depth = metadata.get("evidence_depth", "full_text")
-    if raw_evidence_depth not in {"full_text", "abstract"}:
+    if raw_evidence_depth not in EVIDENCE_DEPTHS:
         raise DocumentRegistryError(
-            f"evidence_depth must be full_text or abstract: {path}"
+            f"evidence_depth must be one of {sorted(EVIDENCE_DEPTHS)}: {path}"
         )
     known_fields = set(PartialPaperMetadata.model_fields)
     filtered = {str(key): value for key, value in metadata.items() if str(key) in known_fields}
     return (
         PartialPaperMetadata.model_validate(filtered),
-        cast(Literal["full_text", "abstract"], raw_evidence_depth),
+        cast(EvidenceDepth, raw_evidence_depth),
     )
 
 

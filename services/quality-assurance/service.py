@@ -86,9 +86,16 @@ def find_missing_citations(markdown: str) -> list[MissingCitation]:
 
 def build_reference_profiles(discovery, verification) -> dict[int, set[str]]:
     """Map each numbered reference (as it appears in the draft, `[N]`) to a
-    token profile built from Discovery's own title/abstract for that paper,
+    token profile built from the evidence Discovery actually held for that
+    paper — title, abstract, venue, and the retrieved Discussion excerpt —
     matched by DOI. References whose DOI has no Discovery match are left
-    out — an honest gap, not a false claim of support (see DECISIONS.md D-013)."""
+    out — an honest gap, not a false claim of support (see DECISIONS.md D-013).
+
+    The profile must cover exactly the evidence Service 2 was actually given,
+    so it includes `discussion_excerpt` wherever Discovery retrieved one
+    (D-039). Checking a Discussion-sourced claim against the abstract alone
+    would report an unsupported claim for evidence that is genuinely present —
+    the same class of false positive as D-021."""
     doi_to_paper = {
         paper.doi.lower(): paper for paper in discovery.selected_papers if paper.doi
     }
@@ -105,17 +112,29 @@ def build_reference_profiles(discovery, verification) -> dict[int, set[str]]:
         paper = doi_to_paper.get((check.doi or "").lower())
         if paper is None:
             continue
-        profile_text = " ".join(filter(None, [paper.title, paper.abstract, paper.venue]))
+        profile_text = " ".join(filter(None, [
+            paper.title, paper.abstract, paper.venue, paper.discussion_excerpt,
+        ]))
         profiles[int(match.group(1))] = _tokens(profile_text)
     return profiles
 
 
 def find_unsupported_claims(markdown: str, profiles: dict[int, set[str]]) -> list[UnsupportedClaim]:
     """Cited sentences whose wording does not overlap enough with any of
-    their cited papers' title/abstract text. Only flags a claim when at
-    least one of its citation numbers has a known profile to check against
-    — an unmatched DOI is a coverage gap (known_limitations), not evidence
-    of an unsupported claim."""
+    their cited papers' evidence profile (see build_reference_profiles).
+    Only flags a claim when at least one of its citation numbers has a known
+    profile to check against — an unmatched DOI is a coverage gap
+    (known_limitations), not evidence of an unsupported claim.
+
+    Sensitivity trade-off, accepted knowingly (D-039): a profile that now
+    includes a retrieved Discussion excerpt holds several times more tokens
+    than title+abstract alone, so this check clears more claims than it used
+    to against the same 3-token threshold. That is the cost of not reporting
+    every correctly Discussion-grounded claim as unsupported, which is what
+    the narrower profile would have done once Service 2 gained that evidence.
+    The threshold is deliberately left at 3: changing it in the same pass
+    would be an unmeasured change to a check whose false-positive behaviour
+    was the actual problem. Revisit with real-run data, not by guessing."""
     body = markdown.split("## References", 1)[0]
     unsupported: list[UnsupportedClaim] = []
     for raw_line in body.splitlines():

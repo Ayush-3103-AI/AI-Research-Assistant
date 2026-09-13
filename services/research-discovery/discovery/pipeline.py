@@ -102,6 +102,25 @@ def rank(papers: list[Paper], per_source_limit: int) -> list[Paper]:
     return sorted(papers, key=score, reverse=True)
 
 
+def papers_with_fulltext(corpus: list[Paper]) -> list[Paper]:
+    """The papers the full-text stage actually retrieved text for."""
+    return [p for p in corpus if p.future_text]
+
+
+def fulltext_done_event(corpus: list[Paper]) -> dict:
+    """The end-of-stage event for the full-text stage.
+
+    Carries the retrieved text itself, not just which papers have it: the
+    `corpus` event is emitted before this stage runs, so `to_client_dict()`
+    cannot see `future_text` and this event is the only place downstream
+    consumers can pick it up (see DECISIONS.md D-039).
+    """
+    with_text = papers_with_fulltext(corpus)
+    return {"type": "fulltext_done",
+            "paper_ids": [p.id for p in with_text],
+            "excerpts": {p.id: p.future_text for p in with_text}}
+
+
 async def _collect_fulltext(corpus: list[Paper]) -> AsyncIterator[dict]:
     """Fetch Discussion/Future sections for the best full-text candidates."""
     targets = [p for p in corpus if fulltext.is_candidate(p)][:FULLTEXT_MAX_ATTEMPTS]
@@ -281,12 +300,11 @@ async def run_pipeline(question: str, source_keys: list[str],
             yield {"type": "status", "stage": "fulltext", "state": "running",
                    "message": f"Retrieving full texts… {event['ok']} of {event['done']} "
                               f"tried (of {event['total']} candidates)"}
-        with_text = [p for p in corpus if p.future_text]
+        with_text = papers_with_fulltext(corpus)
         yield {"type": "status", "stage": "fulltext", "state": "done",
                "message": f"Discussion/Future-research sections retrieved for "
                           f"{len(with_text)} papers"}
-        yield {"type": "fulltext_done",
-               "paper_ids": [p.id for p in with_text]}
+        yield fulltext_done_event(corpus)
 
         # --- Stage: mine author-flagged future-research statements ----------
         if with_text:

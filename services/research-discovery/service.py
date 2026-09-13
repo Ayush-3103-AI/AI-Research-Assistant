@@ -26,13 +26,14 @@ DEFAULT_SOURCES = ["s2", "openalex", "pubmed", "arxiv"]
 PER_SOURCE_RESULTS = 40
 
 
-def _paper_metadata(p: dict) -> PaperMetadata:
+def _paper_metadata(p: dict, discussion_excerpt: str | None = None) -> PaperMetadata:
     return PaperMetadata(
         id=p["id"], title=p["title"], authors=[a for a in p["authors"] if a != "et al."],
         year=p["year"], venue=p["venue"], citations=p["citations"], doi=p.get("doi"),
         url=p.get("link"), source=p["source"], has_abstract=p["has_abstract"],
         abstract=p.get("abstract"),
         relevance_score=p.get("relevance_score"), relevance_reason=p.get("relevance_reason"),
+        discussion_excerpt=discussion_excerpt,
     )
 
 
@@ -48,6 +49,9 @@ async def run_discovery(request: DiscoveryRequest,
     source_keys = sources or DEFAULT_SOURCES
     queries: dict = {}
     corpus_papers: list[dict] = []
+    # Populated by the full-text stage, which runs after the corpus event —
+    # see discovery.pipeline.fulltext_done_event().
+    excerpts: dict[int, str] = {}
     report: dict = {}
 
     async for event in run_pipeline(request.research_question, source_keys,
@@ -58,6 +62,8 @@ async def run_discovery(request: DiscoveryRequest,
             queries = event["queries"]
         elif event["type"] == "corpus":
             corpus_papers = event["papers"]
+        elif event["type"] == "fulltext_done":
+            excerpts = event.get("excerpts", {})
         elif event["type"] == "report":
             report = event["report"]
         yield event
@@ -71,7 +77,8 @@ async def run_discovery(request: DiscoveryRequest,
         research_interpretation=queries.get("interpretation", ""),
         search_queries={k: v for k, v in queries.items() if k != "interpretation"},
         sources_searched=[s for s in source_keys],
-        selected_papers=[_paper_metadata(p) for p in corpus_papers],
+        selected_papers=[_paper_metadata(p, excerpts.get(p["id"]))
+                         for p in corpus_papers],
         field_overview=report["field_overview"],
         important_findings=[t["summary"] for t in report.get("themes", [])],
         limitations=report["limitations"],

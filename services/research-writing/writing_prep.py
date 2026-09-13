@@ -84,7 +84,8 @@ def render_research_gap_section(discovery: DiscoveryResult) -> str:
 
 
 def _front_matter(paper: PaperMetadata) -> str:
-    lines = ["---", "evidence_depth: abstract", f"title: {paper.title!r}"]
+    depth = "abstract_plus_discussion" if paper.discussion_excerpt else "abstract"
+    lines = ["---", f"evidence_depth: {depth}", f"title: {paper.title!r}"]
     if paper.authors:
         authors = ", ".join(f"{a!r}" for a in paper.authors)
         lines.append(f"authors: [{authors}]")
@@ -98,17 +99,49 @@ def _front_matter(paper: PaperMetadata) -> str:
     return "\n".join(lines)
 
 
+DISCUSSION_HEADING = "## Discussion, Limitations, and Future Work (authors' own words)"
+
+
+def _body(paper: PaperMetadata) -> str:
+    """The evidence packet for one paper: its abstract, plus the authors' own
+    Discussion/Limitations/Future-research text where Service 1 actually
+    retrieved an open-access full text.
+
+    Each part present is explicitly headed so the card builder can tell which
+    text it is reading and never describe the whole paper as reviewed — D-010's
+    abstract-only decision is relaxed only as far as the retrieved text really
+    goes, and the declared `evidence_depth` says exactly that (DECISIONS.md
+    D-029/D-039).
+
+    A heading is written only for text that actually exists: a paper reaching
+    here with an excerpt but no abstract gets the Discussion section alone,
+    rather than an `## Abstract` heading over a placeholder claiming evidence
+    the packet does not contain."""
+    sections = []
+    if paper.abstract:
+        sections.append(f"## Abstract\n\n{paper.abstract}")
+    if paper.discussion_excerpt:
+        sections.append(f"{DISCUSSION_HEADING}\n\n{paper.discussion_excerpt}")
+    if not sections:
+        # has_abstract was true but no text came with it — see write_literature_files.
+        sections.append("## Abstract\n\n(Abstract not available; metadata only.)")
+    return "\n\n".join(sections)
+
+
 def write_literature_files(discovery: DiscoveryResult, literature_directory: Path) -> int:
-    """Writes one Markdown file per selected paper (evidence_depth: abstract,
-    per DECISIONS.md D-010) with whatever text Service 1 actually retrieved.
-    Returns the number of files written."""
+    """Writes one Markdown file per selected paper with whatever text Service 1
+    actually retrieved. Returns the number of files written.
+
+    A paper with no abstract is still written when a real Discussion excerpt
+    was retrieved — dropping it would discard the deepest evidence in the
+    corpus over a missing abstract. A paper with neither is skipped, since
+    metadata alone gives the card builder nothing to extract."""
     literature_directory.mkdir(parents=True, exist_ok=True)
     written = 0
     for paper in discovery.selected_papers:
-        if not paper.abstract and not paper.has_abstract:
+        if not paper.abstract and not paper.has_abstract and not paper.discussion_excerpt:
             continue
-        body = paper.abstract or "(Abstract not available; metadata only.)"
         path = literature_directory / f"{_slug(paper.title)}-{paper.id}.md"
-        path.write_text(f"{_front_matter(paper)}\n\n{body}\n", encoding="utf-8")
+        path.write_text(f"{_front_matter(paper)}\n\n{_body(paper)}\n", encoding="utf-8")
         written += 1
     return written

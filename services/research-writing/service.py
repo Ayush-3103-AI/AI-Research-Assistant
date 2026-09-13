@@ -1,9 +1,10 @@
 """Public entry point for the Research Writing Service.
 
 Takes a DiscoveryResult (Service 1's output), builds an outline and one
-literature file per selected paper (abstract-depth evidence — see
-DECISIONS.md D-010), runs the writing graph against the local model, and
-adapts its output to the shared WritingResult contract.
+literature file per selected paper (the abstract, plus the authors' own
+Discussion/Limitations/Future-work text wherever Discovery retrieved a real
+full text — see DECISIONS.md D-010 and D-039), runs the writing graph against
+the local model, and adapts its output to the shared WritingResult contract.
 """
 
 from __future__ import annotations

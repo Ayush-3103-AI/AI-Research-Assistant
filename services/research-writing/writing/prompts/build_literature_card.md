@@ -8,6 +8,16 @@ evidence packet rather than a full paper: extract only claims explicitly stated 
 abstract, preserve abstract-level uncertainty, never infer unreported methods or results,
 and never describe the source as having been reviewed in full text.
 
+When `evidence_depth` is `abstract_plus_discussion`, the document carries the abstract plus
+the authors' own Discussion / Limitations / Future-work sections, under their own headings,
+retrieved from the real full text. Extract from both, and extract the whole of what the
+Discussion section supports — the authors' interpretations of their results, the boundary
+conditions and confounders they name, the limitations they concede, and the future work they
+call for, attributed to them rather than asserted as established fact. The rest of the paper
+(methods, full results tables, related work) is still absent, so everything above applies
+unchanged: never infer an unreported method or result, and never describe the source as
+having been reviewed in full text.
+
 Extract claims that can support comparative review writing, not a generic paper summary.
 Each point should express one citable proposition while retaining the methodological context,
 studied population or system, comparison conditions, direction, uncertainty, and boundary

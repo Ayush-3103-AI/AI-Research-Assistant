@@ -149,6 +149,16 @@ class PartialPaperMetadata(StrictModel):
     paper_type: str | None = None
 
 
+EvidenceDepth = Literal["full_text", "abstract", "abstract_plus_discussion"]
+"""How much of a source paper the evidence packet actually contains.
+
+`abstract_plus_discussion` is the abstract plus the authors' own retrieved
+Discussion/Limitations/Future-work sections — more than an abstract, and
+genuinely less than the whole paper (see DECISIONS.md D-039). The card prompt
+(`prompts/build_literature_card.md`) defines what each value permits; adding a
+value here means teaching that prompt about it too."""
+
+
 class PaperDocument(StrictModel):
     """A stable registry entry for one Markdown source document."""
 
@@ -156,7 +166,7 @@ class PaperDocument(StrictModel):
     source_path: str
     relative_path: str
     content_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
-    evidence_depth: Literal["full_text", "abstract"] = "full_text"
+    evidence_depth: EvidenceDepth = "full_text"
     metadata: PartialPaperMetadata
 
 

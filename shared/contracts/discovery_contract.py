@@ -43,6 +43,12 @@ class PaperMetadata(BaseModel):
     abstract: str | None = None
     relevance_score: float | None = None
     relevance_reason: str | None = None
+    # The authors' own Discussion/Limitations/Future-research text, when an
+    # open-access full text was actually retrieved (Discovery already fetches
+    # this for its own gap mining). Forwarded so Service 2 can write from the
+    # authors' stated reasoning and not only from the abstract — see
+    # DECISIONS.md D-029/D-039. None whenever no full text was available.
+    discussion_excerpt: str | None = None
 
 
 class ResearchGap(BaseModel):

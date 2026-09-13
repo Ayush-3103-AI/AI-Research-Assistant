@@ -19,9 +19,12 @@ from dataclasses import dataclass
 # Length presets offered to the user (researchgenie/cli.py). Informed by
 # PAPER_OUTPUT_DIAGNOSTIC.md's real measurement that the previous
 # architecture averaged ~1,353 words across 4 sections — these targets are
-# deliberately well above that baseline, but still realistic for an
-# abstract-only-evidence, local-model-generated draft (see D-010's
-# documented evidence-depth constraint).
+# deliberately well above that baseline, but still realistic for a
+# local-model-generated draft at this project's evidence depth (D-010, since
+# extended by D-039 to include the authors' own retrieved Discussion text).
+# Deliberately NOT raised when D-039 landed: whether the deeper evidence
+# actually moves drafted length is unmeasured, and changing the targets in
+# the same pass would confound that measurement.
 LENGTH_PRESETS: dict[str, int] = {
     "short": 2200,
     "standard": 4000,
