@@ -6,6 +6,7 @@ import asyncio
 import json
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -17,6 +18,7 @@ from shared.contracts.discovery_contract import (  # noqa: E402
     DiscoveryRequest, DiscoveryResult, NoveltyAssessment, PaperMetadata, ResearchGap,
 )
 from shared.contracts.pipeline_contract import ResearchRequest  # noqa: E402
+from shared.contracts.trend_contract import TrendAdvisorRequest  # noqa: E402
 from shared.contracts.qa_contract import QualityAssuranceResult, QualityScores  # noqa: E402
 from shared.contracts.verification_contract import VerificationResult  # noqa: E402
 from shared.contracts.writing_contract import DraftMetadata, WritingResult  # noqa: E402
@@ -316,3 +318,160 @@ def test_a_chosen_topic_absent_from_the_shortlist_is_not_reported_as_gap_flagged
 
     assert metadata["chosen_topic"] == "Some Other Topic"
     assert metadata["chosen_topic_gap_flagged"] is False
+
+
+# --- Stage 0 run from the orchestrator (ticket #5) --------------------------
+
+async def _fake_run_trend_advisor(request, *, output_root=None, run_id=None, model=None):
+    yield {"type": "status", "stage": "velocity", "state": "running",
+           "message": "Analysing publication velocity..."}
+    yield {"type": "status", "stage": "gap_mining", "state": "done",
+           "message": "1 topic(s) flagged as recurring gaps."}
+    yield {"type": "result", "result": _fake_trend_result(),
+           "run_directory": str(output_root)}
+
+
+@pytest.fixture
+def _patch_advisor(monkeypatch):
+    monkeypatch.setattr(
+        orchestrator_pipeline, "trend_advisor_service",
+        SimpleNamespace(run_trend_advisor=_fake_run_trend_advisor),
+    )
+
+
+def test_trend_advisor_stage_runs_alone_with_standardized_events(tmp_path, _patch_advisor):
+    """The advisor's own ad hoc events must reach the caller in the same
+    shape the four stages emit, not in the service's private shape."""
+    request = TrendAdvisorRequest(domain="CS_AI_ML")
+
+    async def run():
+        events, result = [], None
+        async for event in orchestrator_pipeline.run_trend_advisor_stage(
+            request, output_root=tmp_path,
+        ):
+            if event["type"] == "result":
+                result = event["result"]
+            else:
+                events.append(event)
+        return events, result
+
+    events, result = asyncio.run(run())
+
+    assert result.shortlist[0].topic == "Edge Inference"
+    assert events
+    for event in events:
+        assert event["stage"] == "trend_advisor"
+        assert set(event) >= {"run_id", "stage", "service", "status", "emoji",
+                              "title", "message", "details", "timestamp"}
+    assert [e["status"] for e in events] == ["running", "done"]
+    assert len({e["run_id"] for e in events}) == 1
+
+
+def test_advisor_then_pipeline_feeds_the_chosen_topic_into_the_run(tmp_path, _patch_advisor):
+    """The pick is the caller's; the orchestrator only carries it through as
+    the research question and as the run's recorded provenance."""
+    async def run():
+        events, result = [], None
+        async for event in orchestrator_pipeline.run_advisor_then_pipeline(
+            TrendAdvisorRequest(domain="CS_AI_ML"),
+            lambda advisor: advisor.shortlist[0].topic,
+            ResearchRequest(research_question="placeholder", corpus_size=6),
+            output_root=tmp_path,
+        ):
+            if event["type"] == "result":
+                result = event["result"]
+            else:
+                events.append(event)
+        return events, result
+
+    events, result = asyncio.run(run())
+
+    assert result.request.research_question == "Edge Inference"
+    assert result.request.corpus_size == 6
+    assert result.trend_advisor.chosen_topic == "Edge Inference"
+    metadata = json.loads((Path(result.run_directory) / "metadata.json").read_text(encoding="utf-8"))
+    assert metadata["chosen_topic"] == "Edge Inference"
+    # Stage 0's own progress reaches the caller before Discovery's does.
+    assert events.index(next(e for e in events if e["stage"] == "trend_advisor")) < \
+        events.index(next(e for e in events if e["stage"] == "discovery"))
+
+
+def test_advisor_then_pipeline_does_not_run_the_pipeline_without_a_pick(tmp_path, _patch_advisor):
+    """Stopping to think it over is a legitimate outcome, not a run."""
+    async def run():
+        events = []
+        async for event in orchestrator_pipeline.run_advisor_then_pipeline(
+            TrendAdvisorRequest(domain="CS_AI_ML"), lambda advisor: None,
+            output_root=tmp_path,
+        ):
+            events.append(event)
+        return events
+
+    events = asyncio.run(run())
+
+    assert not any(e["type"] == "result" for e in events)
+    assert not any(e.get("stage") == "discovery" for e in events)
+    assert events[-1]["stage"] == "trend_advisor"
+
+
+# --- Stage 0 against the real advisor service, which really writes to disk ---
+
+@pytest.fixture
+def _real_advisor(monkeypatch):
+    """The fakes above write nothing, so they cannot see where the advisor's
+    own artifacts land. Only OpenAlex and the local model are stubbed out."""
+    from shared.contracts.trend_contract import TopicCandidate
+
+    service = orchestrator_pipeline._trend_advisor_service()
+
+    async def _find_rising_topics(domain, limit=8, domain_other_name=None):
+        return [TopicCandidate(topic="Edge Inference", topic_id="T1",
+                               growth_metric=3.0, paper_count=900, prior_papers=300)]
+
+    async def _health_check():
+        return False
+
+    monkeypatch.setattr(service, "find_rising_topics", _find_rising_topics)
+    monkeypatch.setattr(service.llm_provider, "health_check", _health_check)
+    monkeypatch.setattr(orchestrator_pipeline, "trend_advisor_service", service)
+    return service
+
+
+def test_chained_run_leaves_exactly_one_run_directory(tmp_path, _real_advisor):
+    """One run, one auditable folder: Stage 0's evidence lives inside the
+    pipeline's run directory rather than in a second folder beside it."""
+    async def run():
+        async for event in orchestrator_pipeline.run_advisor_then_pipeline(
+            TrendAdvisorRequest(domain="CS_AI_ML"),
+            lambda advisor: advisor.shortlist[0].topic,
+            ResearchRequest(research_question="placeholder", corpus_size=6),
+            output_root=tmp_path,
+        ):
+            if event["type"] == "result":
+                return event["result"]
+
+    result = asyncio.run(run())
+    run_directory = Path(result.run_directory)
+
+    assert [p.name for p in tmp_path.iterdir() if p.is_dir()] == [run_directory.name]
+    assert run_directory.name.startswith("edge-inference_")
+    saved = run_directory / "00_trend_advisor" / "result.json"
+    assert json.loads(saved.read_text(encoding="utf-8"))["shortlist"][0]["topic"] == "Edge Inference"
+    assert (run_directory / "final" / "draft.md").exists()
+
+
+def test_trend_advisor_stage_alone_keeps_its_own_run_directory(tmp_path, _real_advisor):
+    """Stopping at the shortlist still has to leave the student a folder."""
+    async def run():
+        async for event in orchestrator_pipeline.run_trend_advisor_stage(
+            TrendAdvisorRequest(domain="CS_AI_ML"), output_root=tmp_path,
+        ):
+            if event["type"] == "result":
+                return event
+
+    event = asyncio.run(run())
+    run_directory = Path(event["run_directory"])
+
+    assert run_directory.name.startswith("cs-ai-ml_")
+    assert [p.name for p in tmp_path.iterdir() if p.is_dir()] == [run_directory.name]
+    assert (run_directory / "00_trend_advisor" / "result.json").exists()

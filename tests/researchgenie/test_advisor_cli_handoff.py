@@ -108,6 +108,87 @@ def test_quitting_the_chat_without_picking_starts_no_run(handoff, monkeypatch):
     assert "request" not in handoff
 
 
+# --- Surviving a provider blip after the long wait -------------------------
+
+def _flat(capsys) -> str:
+    return " ".join(capsys.readouterr().out.split())
+
+
+def _scripted_prompt(monkeypatch, answers: list[str]) -> None:
+    queued = list(answers)
+    monkeypatch.setattr(advisor_cli.Prompt, "ask",
+                        staticmethod(lambda *a, **k: queued.pop(0)))
+
+
+def test_a_provider_blip_in_chat_does_not_discard_the_shortlist(monkeypatch, capsys):
+    """The shortlist cost minutes of live queries and gap mining; one failed
+    chat turn must not take it down with the process."""
+    async def boom(question, context):
+        raise advisor_cli.llm_provider.LLMProviderError("no model reachable")
+
+    monkeypatch.setattr(advisor_cli, "_chat_turn", boom)
+    _scripted_prompt(monkeypatch, ["which one is less crowded?", "quit"])
+
+    assert advisor_cli._converge(advisor_cli.Console(legacy_windows=False),
+                                 _advisor_result()) is None
+    assert "no model reachable" in _flat(capsys)
+
+
+def test_a_bare_enter_does_not_lock_in_a_topic(monkeypatch, capsys):
+    """Confirm.ask's default IS what Enter returns. Locking in is an explicit
+    human decision, so Enter must decline, not accept."""
+    seen: dict = {}
+
+    def fake_confirm(*args, **kwargs):
+        seen["default"] = kwargs.get("default")
+        return kwargs.get("default")
+
+    monkeypatch.setattr(advisor_cli.Confirm, "ask", staticmethod(fake_confirm))
+    _scripted_prompt(monkeypatch, ["go with #2", "quit"])
+
+    assert advisor_cli._converge(advisor_cli.Console(legacy_windows=False),
+                                 _advisor_result()) is None
+    assert seen["default"] is False
+
+
+def test_an_explicit_yes_still_locks_in(monkeypatch):
+    monkeypatch.setattr(advisor_cli.Confirm, "ask", staticmethod(lambda *a, **k: True))
+    _scripted_prompt(monkeypatch, ["go with #2"])
+
+    chosen = advisor_cli._converge(advisor_cli.Console(legacy_windows=False),
+                                   _advisor_result())
+
+    assert chosen.topic == CHOSEN
+
+
+def test_a_provider_blip_after_lock_in_falls_back_honestly(handoff, monkeypatch, capsys):
+    """No traceback at the worst possible moment, and no topic name quietly
+    presented as if the model had drafted a question from it."""
+    async def boom(candidate):
+        raise advisor_cli.llm_provider.LLMProviderError("no model reachable")
+
+    monkeypatch.setattr(advisor_cli, "_research_question_for", boom)
+
+    advisor_cli.main()
+
+    printed = _flat(capsys)
+    assert "no model reachable" in printed
+    assert "not a research question" in printed
+    assert handoff["request"].research_question == CHOSEN
+
+
+def test_an_empty_drafted_question_announces_itself(handoff, monkeypatch, capsys):
+    async def blank(candidate):
+        return ""
+
+    monkeypatch.setattr(advisor_cli, "_research_question_for", blank)
+
+    advisor_cli.main()
+
+    assert "not a research question" in _flat(capsys)
+    assert handoff["request"].research_question == CHOSEN
+
+
 def test_a_run_started_from_the_advisor_shows_the_stage_zero_row(monkeypatch):
     """cli._run_research decides whether the live view has a Stage 0 row;
     an advisor-started run must show the stage that produced its topic."""

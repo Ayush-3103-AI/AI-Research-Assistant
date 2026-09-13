@@ -51,10 +51,15 @@ DOMAINS: list[tuple[str, str]] = [
 
 _PICK_PATTERNS = [
     # "go with #2", "pick 2", "number 2", "option 2", "let's do 2", "2"
-    re.compile(r"(?:^|\b)(?:go\s+with|pick|choose|select|option|number|take|do)\s*"
+    re.compile(r"(?:^|\b)(?:go\s+with|let'?s\s+do|pick|choose|select|option|number|take)\s*"
                r"#?\s*(\d{1,2})\b", re.IGNORECASE),
     re.compile(r"^\s*#?\s*(\d{1,2})\s*$"),
 ]
+
+# A question is never a pick: "what do 3 papers say?" mentions a number, it
+# does not choose one.
+_QUESTION = re.compile(r"^(?:wh(?:at|ich|y|en|o|ere)|how|is|are|was|were|do|does|did|can|"
+                       r"could|should|would|will|tell|explain|compare)\b", re.IGNORECASE)
 
 CHAT_SYSTEM_PROMPT = """You are a research-topic advisor for an engineering student.
 
@@ -96,11 +101,15 @@ def parse_pick(text: str, candidates: list[TopicCandidate]) -> int | None:
     shortlist is not a pick — better to fall through to the chat turn and
     let the student see the list again than to silently lock in the wrong
     topic. An exact topic name is accepted too, since students copy titles.
+    A question that happens to contain a number is never a pick.
     """
     stripped = text.strip()
+    asking = stripped.endswith("?") or bool(_QUESTION.match(stripped))
     for pattern in _PICK_PATTERNS:
         match = pattern.search(stripped)
         if match:
+            if asking:
+                return None
             index = int(match.group(1))
             if 1 <= index <= len(candidates):
                 return index
@@ -254,12 +263,17 @@ def _converge(console: Console, result: TrendAdvisorResult) -> TopicCandidate | 
         if position is not None:
             candidate = result.shortlist[position - 1]
             _render_evidence(console, candidate, position)
-            if Confirm.ask(f"\n[bold]Lock in \"{candidate.topic}\"?[/bold]", default=True):
+            if Confirm.ask(f"\n[bold]Lock in \"{candidate.topic}\"?[/bold]", default=False):
                 return candidate
             continue
 
         console.print(f"[{MUTED}]Thinking...[/{MUTED}]")
-        console.print(asyncio.run(_chat_turn(answer, context)))
+        try:
+            console.print(asyncio.run(_chat_turn(answer, context)))
+        except llm_provider.LLMProviderError as error:
+            console.print(f"[{ERROR}]The model didn't answer: {error}[/{ERROR}]")
+            console.print(f"[{MUTED}]Your shortlist and its evidence are still here — "
+                          f"ask again, or pick a topic.[/{MUTED}]")
 
 
 def _run_advisor(console: Console, request: TrendAdvisorRequest) -> TrendAdvisorResult | None:
@@ -307,7 +321,15 @@ def main() -> None:
         return
 
     console.print(f"\n[{MUTED}]Drafting a research question...[/{MUTED}]")
-    question = asyncio.run(_research_question_for(chosen)) or chosen.topic
+    try:
+        question = asyncio.run(_research_question_for(chosen))
+    except llm_provider.LLMProviderError as error:
+        console.print(f"[{ERROR}]The model didn't answer: {error}[/{ERROR}]")
+        question = ""
+    if not question:
+        question = chosen.topic
+        console.print(f"[{WARN}]No question was drafted. Below is your topic, not a "
+                      f"research question — edit it into one before running.[/{WARN}]")
     console.print(f"\n[bold]Research question:[/bold] {question}")
     question = Prompt.ask("[bold]Use this, or type your own[/bold]", default=question)
 

@@ -12,7 +12,7 @@ import re
 import sys
 import time
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 from uuid import uuid4
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -23,7 +23,9 @@ from shared.contracts.pipeline_contract import (  # noqa: E402
     PipelineResult, ResearchRequest, StageTimings,
 )
 from shared.contracts.qa_contract import QualityAssuranceRequest  # noqa: E402
-from shared.contracts.trend_contract import TrendAdvisorResult  # noqa: E402
+from shared.contracts.trend_contract import (  # noqa: E402
+    TrendAdvisorRequest, TrendAdvisorResult,
+)
 from shared.contracts.verification_contract import VerificationRequest  # noqa: E402
 from shared.contracts.writing_contract import WritingRequest  # noqa: E402
 from shared.utilities import latex_export  # noqa: E402
@@ -49,6 +51,20 @@ verification_service = _load_service(
     "orchestrator_verification_service", "services/verification/service.py")
 qa_service = _load_service(
     "orchestrator_qa_service", "services/quality-assurance/service.py")
+
+# Loaded on first use rather than beside the four above: Stage 0 is optional,
+# and its module pulls in the gap-mining swarm and the local model adapter
+# that a normal four-stage run never touches.
+trend_advisor_service = None
+
+
+def _trend_advisor_service():
+    global trend_advisor_service
+    if trend_advisor_service is None:
+        trend_advisor_service = _load_service(
+            "orchestrator_trend_advisor_service", "services/trend-advisor/service.py")
+    return trend_advisor_service
+
 
 DEFAULT_OUTPUT_ROOT = ROOT / "outputs"
 
@@ -302,3 +318,81 @@ async def run_pipeline(
         )
     _write_json(run_directory / "metadata.json", metadata)
     yield {"type": "result", "result": result}
+
+
+async def run_trend_advisor_stage(
+    request: TrendAdvisorRequest, output_root: Path | None = None,
+    run_id: str | None = None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Runs Stage 0 on its own, adapting the advisor service's own progress
+    events into the same standardized shape as Stages 1-4, then yielding its
+    {"type": "result", "result": TrendAdvisorResult} event unchanged.
+
+    Which shortlisted topic to pick is not decided here — see
+    run_advisor_then_pipeline."""
+    run_id = run_id or uuid4().hex
+    async for event in _trend_advisor_service().run_trend_advisor(
+        request, output_root=output_root or DEFAULT_OUTPUT_ROOT, run_id=run_id,
+    ):
+        if event["type"] == "result":
+            yield event
+        else:
+            yield _adapt_inner_event(run_id, "trend_advisor", "trend_advisor", event)
+
+
+async def run_advisor_then_pipeline(
+    advisor_request: TrendAdvisorRequest,
+    select_topic: Callable[[TrendAdvisorResult], str | None],
+    request: ResearchRequest | None = None,
+    output_root: Path | None = None, run_id: str | None = None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Stage 0 followed immediately by the four-stage pipeline, under one run_id.
+
+    select_topic is handed the finished shortlist and returns the topic that
+    was locked in, or None if it was not (user story 10). Choosing is the
+    caller's decision — the same hand-off the advisor CLI makes after its
+    converging chat — so nothing here picks a topic or asks a model to.
+
+    The chosen topic becomes ResearchRequest.research_question; `request`
+    supplies the remaining pipeline settings when the defaults are not
+    wanted, and its own research_question is overwritten."""
+    run_id = run_id or uuid4().hex
+    advisor_result = None
+    advisor_directory = None
+    async for event in run_trend_advisor_stage(advisor_request, output_root, run_id):
+        if event["type"] == "result":
+            advisor_result = event["result"]
+            advisor_directory = event.get("run_directory")
+        else:
+            yield event
+    if advisor_result is None:
+        raise PipelineError("Trend & Gap Advisor Service produced no result.")
+
+    topic = select_topic(advisor_result)
+    if topic is None:
+        yield _progress_event(
+            run_id=run_id, stage="trend_advisor", service="trend_advisor", status="done",
+            title="No topic locked in",
+            message="The shortlist was produced but no topic was chosen, so the "
+                    "research pipeline was not started.",
+        )
+        return
+
+    request = (request or ResearchRequest(research_question=topic)).model_copy(
+        update={"research_question": topic})
+
+    # One run, one folder: the advisor named its own run directory after the
+    # domain, so rename it to the directory run_pipeline is about to use and
+    # let Stage 0's artifacts stay inside it as 00_trend_advisor/.
+    if advisor_directory:
+        advisor_dir = Path(advisor_directory)
+        merged_dir = advisor_dir.parent / f"{_slugify(topic)}_{run_id}"
+        if (advisor_dir.is_dir() and advisor_dir.name.endswith(f"_{run_id}")
+                and merged_dir != advisor_dir and not merged_dir.exists()):
+            advisor_dir.rename(merged_dir)
+
+    async for event in run_pipeline(
+        request, output_root=output_root, run_id=run_id,
+        trend_advisor=advisor_result.model_copy(update={"chosen_topic": topic}),
+    ):
+        yield event

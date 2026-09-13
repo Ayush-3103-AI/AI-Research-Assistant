@@ -51,6 +51,28 @@ def test_a_question_mentioning_a_number_is_not_a_pick():
     assert parse_pick("what's the difference between 1 and 3?", CANDIDATES) is None
 
 
+def test_a_question_containing_a_pick_verb_is_not_a_pick():
+    """Regression: "do 3" used to parse as a pick, so an ordinary question
+    offered to lock in topic 3 and a reflexive Enter confirmed it."""
+    for question in ["what do 3 papers say about this?",
+                     "do 3 and 1 overlap?",
+                     "should I pick 2 or 3?",
+                     "is option 2 crowded?",
+                     "would 2 take 3 years?",
+                     "which of these do 2 groups both work on?",
+                     "how long does option 1 take 2 write up?",
+                     "can you compare 1 and 2?",
+                     "tell me why 3 is growing"]:
+        assert parse_pick(question, CANDIDATES) is None, question
+
+
+def test_a_pick_phrased_as_a_statement_still_parses():
+    """The question guard must not eat the phrasings students actually use."""
+    for phrasing in ["go with #2", "let's do 2", "I'll take 2", "option 2",
+                     "ok, pick 2 please"]:
+        assert parse_pick(phrasing, CANDIDATES) == 2, phrasing
+
+
 def test_plain_question_is_not_a_pick():
     assert parse_pick("which of these is less crowded?", CANDIDATES) is None
 

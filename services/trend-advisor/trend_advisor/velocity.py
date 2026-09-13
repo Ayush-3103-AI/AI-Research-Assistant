@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import re
 import sys
+from itertools import zip_longest
 from pathlib import Path
 
 import httpx
@@ -68,6 +70,10 @@ MIN_RECENT_WORKS = 200
 # failure to report, not a short list to present (spec user story 18).
 MIN_TOPICS_FOR_SHORTLIST = 3
 EXAMPLE_PAPERS_PER_TOPIC = 5
+# arXiv's Atom API ranks by relevance and has no count endpoint, so the
+# preprint signal is a sample of this many top hits, not a census. That is
+# why it never enters growth_metric — see _growth_key.
+ARXIV_SEARCH_LIMIT = 50
 # How many papers per topic get a full-text fetch for their Discussion /
 # Limitations / Future-research sections. Matches gap_mining's
 # MAX_PAPERS_PER_TOPIC — fetching text for papers the swarm will never read
@@ -96,6 +102,25 @@ def windows(current_year: int | None = None) -> tuple[tuple[int, int], tuple[int
     return recent, prior
 
 
+def _normalize(name: str) -> str:
+    """The cross-source matching key. OpenAlex and arXiv spell the same topic
+    and the same paper title with different case, punctuation and hyphenation,
+    so raw string equality would treat one thing as two."""
+    return re.sub(r"[^a-z0-9]+", " ", name.lower()).strip()
+
+
+def _growth_key(candidate: TopicCandidate) -> tuple[float, int]:
+    """Growth first, then how much recent work exists across *both* sources.
+
+    arXiv only ever moves the volume half of the key. Its count comes from a
+    relevance-ranked sample rather than a full corpus, so folding it into
+    growth_metric would put a sampled number inside the one ratio a student is
+    told they can re-derive from OpenAlex themselves.
+    """
+    return (candidate.growth_metric,
+            candidate.paper_count + (candidate.arxiv_recent_count or 0))
+
+
 def rank_by_growth(*, recent: dict[str, tuple[str, int]],
                    prior: dict[str, tuple[str, int]],
                    limit: int) -> list[TopicCandidate]:
@@ -118,21 +143,84 @@ def rank_by_growth(*, recent: dict[str, tuple[str, int]],
             prior_papers=prior_count,
             source="velocity",
         ))
-    candidates.sort(key=lambda c: (c.growth_metric, c.paper_count), reverse=True)
+    candidates.sort(key=_growth_key, reverse=True)
     return candidates[:limit]
 
 
-async def _arxiv_recent_count(http: httpx.AsyncClient, topic: str,
-                              since_year: int) -> int | None:
-    """Secondary signal: how many of arXiv's top hits for this topic are
-    recent. Reuses Discovery's existing arXiv connector rather than adding a
-    second client. Returns None (never 0) when arXiv fails, so an outage is
-    never mistaken for an absence of preprints."""
+def merge_sources(primary: list[TopicCandidate],
+                  secondary: list[TopicCandidate]) -> list[TopicCandidate]:
+    """Fold a second source's candidates into the first by normalized topic.
+
+    A topic both sources found stays ONE shortlist entry. The primary keeps
+    its own paper_count: OpenAlex counts a whole indexed corpus and arXiv a
+    sample of preprints, so adding them would report a volume neither source
+    measured. The secondary's count lands in arxiv_recent_count instead, where
+    it is labelled for what it is. Example papers union, deduplicated by
+    title, and interleaved rather than appended: gap mining reads only the
+    first MAX_PAPERS_PER_TOPIC papers that have text, and every OpenAlex
+    paper has one (works_for_topic filters on has_abstract), so appending
+    put the preprints permanently out of the swarm's reach.
+    """
+    merged: dict[str, TopicCandidate] = {}
+    for candidate in primary + secondary:
+        existing = merged.get(_normalize(candidate.topic))
+        if existing is None:
+            merged[_normalize(candidate.topic)] = candidate
+            continue
+        if candidate.arxiv_recent_count is not None:
+            existing.arxiv_recent_count = candidate.arxiv_recent_count
+        seen = {_normalize(p.title) for p in existing.example_papers}
+        added = []
+        for paper in candidate.example_papers:
+            if _normalize(paper.title) not in seen:
+                seen.add(_normalize(paper.title))
+                added.append(paper)
+        existing.example_papers = [
+            paper
+            for pair in zip_longest(existing.example_papers, added)
+            for paper in pair if paper is not None
+        ]
+    return list(merged.values())
+
+
+async def _arxiv_candidate(http: httpx.AsyncClient, topic: str,
+                           year_range: tuple[int, int]) -> TopicCandidate | None:
+    """arXiv's own evidence for one topic: how many of its top hits fall in
+    the same window OpenAlex was counted over, plus the preprints themselves
+    as example papers. Reuses Discovery's existing arXiv connector rather
+    than adding a second client. Returns None (never an empty candidate) when
+    arXiv fails, so an outage is never mistaken for an absence of preprints.
+
+    `year_range` is the OpenAlex recent window, upper bound included: the two
+    counts are added in _growth_key, so an open-ended arXiv filter would let
+    the current partial year through on one side of a sum whose other side
+    deliberately excludes it.
+
+    growth_metric stays 0.0 rather than being computed from the sample: a
+    relevance-ranked top-50 cannot support a recent-vs-prior ratio, and
+    inventing one would let a sampled number outrank counted ones.
+    paper_count stays 0 for the same reason it is never summed in
+    merge_sources: it is OpenAlex's measured volume, and arXiv has not
+    measured it. The sample lands in arxiv_recent_count alone.
+    """
+    start, end = year_range
     try:
-        papers = await arxiv.search(http, {"arxiv": topic}, limit=50)
+        papers = await arxiv.search(http, {"arxiv": topic},
+                                    limit=ARXIV_SEARCH_LIMIT)
     except (httpx.HTTPError, ValueError):
         return None
-    return sum(1 for p in papers if p.year and p.year >= since_year)
+    recent = [p for p in papers if p.year and start <= p.year <= end]
+    return TopicCandidate(
+        topic=topic,
+        growth_metric=0.0,
+        paper_count=0,
+        arxiv_recent_count=len(recent),
+        example_papers=[
+            ExamplePaper(title=p.title, doi=p.doi, year=p.year,
+                         citations=p.citations, abstract=p.abstract)
+            for p in recent[:EXAMPLE_PAPERS_PER_TOPIC]
+        ],
+    )
 
 
 async def _attach_future_work_text(http: httpx.AsyncClient,
@@ -223,10 +311,25 @@ async def find_rising_topics(
         if domain in ARXIV_DOMAINS:
             # Deliberately sequential, unlike the OpenAlex reads above: arXiv
             # asks callers to space requests out, and this is a secondary
-            # annotation not worth risking a rate-limit ban over.
+            # source not worth risking a rate-limit ban over.
+            from_arxiv = []
             for candidate in ranked:
-                candidate.arxiv_recent_count = await _arxiv_recent_count(
-                    http, candidate.topic, recent_window[0],
+                found = await _arxiv_candidate(http, candidate.topic,
+                                               recent_window)
+                if found is not None:
+                    from_arxiv.append(found)
+            ranked = merge_sources(ranked, from_arxiv)
+            ranked.sort(key=_growth_key, reverse=True)
+            ranked = ranked[:limit]
+            # Merging collapses topics whose names normalize alike, so the
+            # shortlist can come out thinner than what was already checked
+            # above. Re-check rather than under-deliver quietly.
+            if len(ranked) < MIN_TOPICS_FOR_SHORTLIST:
+                raise VelocityUnavailable(
+                    f"Merging the OpenAlex and arXiv candidates for "
+                    f"'{domain_other_name or domain}' left only {len(ranked)} "
+                    "distinct topic(s). No shortlist can be produced honestly "
+                    "for this domain."
                 )
 
     return ranked
