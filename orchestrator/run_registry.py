@@ -83,7 +83,8 @@ async def _drive_run(
             _publish(state, event)
     except Exception as error:  # PipelineError, or any unexpected stage failure
         state.status = "failed"
-        state.error = str(error)
-        _publish(state, {"type": "error", "message": str(error)})
+        # Some exceptions (e.g. httpx timeouts) stringify to "" — never report a blank failure.
+        state.error = str(error) or type(error).__name__
+        _publish(state, {"type": "error", "message": state.error})
     finally:
         _publish(state, {"type": "end"})

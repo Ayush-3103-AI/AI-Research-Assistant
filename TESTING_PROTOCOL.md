@@ -1,7 +1,7 @@
 # Testing Protocol — live verification of the Trend Advisor and evidence-depth changes
 
 **For:** a collaborator with a working Ollama + `qwen3.5:9b` setup, ideally on a machine with a real NVIDIA GPU.
-**Branch:** `feature/trend-gap-advisor`
+**Repo:** `https://github.com/Ayush-3103-AI/ResearchGenie` (branch `main`)
 **Estimated time:** 4–8 hours of mostly unattended runs. Budget one evening.
 
 ---
@@ -52,13 +52,11 @@ curl http://localhost:11434/api/version
 
 ## 3. Setup
 
-This branch lives on the fork, not on `TheIntruder007/AI-Research-Assistant`.
-Both repos are public, so no access request is needed — just clone the fork.
+The public repo is everything you need; no access request required.
 
 ```bash
-git clone https://github.com/Ayush-3103-AI/AI-Research-Assistant.git
-cd AI-Research-Assistant
-git checkout feature/trend-gap-advisor
+git clone https://github.com/Ayush-3103-AI/ResearchGenie.git
+cd ResearchGenie
 
 python -m venv .venv
 # Windows:
@@ -76,7 +74,18 @@ Sanity-check before spending hours on it — the suite is fast and needs no mode
 python -m pytest -q
 ```
 
-Expected: **321 passed, 3 skipped**, roughly 2–3 minutes. If this does not pass, stop and report that instead; nothing below is meaningful on a broken checkout.
+Expected: **323 passed, 3 skipped**, roughly 2–3 minutes. With Ollama running, a few live integration tests switch on and take hours; to get the fast suite, point them at a dead port first: `OLLAMA_HOST=http://127.0.0.1:9 python -m pytest -q` (PowerShell: `$env:OLLAMA_HOST="http://127.0.0.1:9"`). If this does not pass, stop and report that instead; nothing below is meaningful on a broken checkout.
+
+---
+
+### Optional: run it in the browser
+
+The same flows are available in the web demo (see README, "Web demo"):
+`uvicorn orchestrator.api:app --port 8000`, then open http://localhost:8000.
+Use it for the evaluator walkthrough, and for the interactive surfaces in
+Protocol A (shortlist evidence, advisor chat, pick, question drafting). The
+smoke scripts below remain the source of the measured numbers, since they exit
+non-zero on any absorbed failure.
 
 ---
 

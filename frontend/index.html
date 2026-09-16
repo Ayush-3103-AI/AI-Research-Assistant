@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ResearchGenie Live Demo</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧞</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #16181d; --muted: #5d6573; --line: #e2e5ea;
+  --accent: #4b5bdc; --accent-soft: #eceefd; --ok: #1f8a4c; --ok-soft: #e4f4ea;
+  --warn: #a86400; --warn-soft: #fbf0dc; --bad: #c0362c; --bad-soft: #fbe6e4;
+  --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1115; --panel: #171a21; --ink: #e8eaef; --muted: #98a0ae; --line: #2a2f39;
+    --accent: #8b97ff; --accent-soft: #232845; --ok: #5cc98b; --ok-soft: #173024;
+    --warn: #e8a94a; --warn-soft: #33260f; --bad: #f07b72; --bad-soft: #3a1b19;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header { background: var(--panel); border-bottom: 1px solid var(--line); }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 16px; }
+header .wrap { display: flex; align-items: center; gap: 16px; padding-top: 14px; padding-bottom: 14px; flex-wrap: wrap; }
+h1 { font-size: 18px; margin: 0; }
+h1 small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+h2 { font-size: 16px; margin: 0 0 12px; }
+.pill { margin-left: auto; font-size: 13px; padding: 4px 10px; border-radius: 99px; background: var(--line); color: var(--muted); }
+.pill.ok { background: var(--ok-soft); color: var(--ok); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+main { padding: 20px 0 60px; display: grid; gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; min-width: 0; }
+.muted { color: var(--muted); }
+.tabs { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.tab { border: 1px solid var(--line); background: transparent; color: var(--ink); padding: 7px 12px; border-radius: 8px; cursor: pointer; font: inherit; }
+.tab[aria-selected="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+input, select, textarea { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+textarea { min-height: 70px; resize: vertical; }
+.row { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); margin-bottom: 12px; }
+button.primary { background: var(--accent); color: #fff; border: 0; padding: 9px 16px; border-radius: 8px; font: inherit; font-weight: 600; cursor: pointer; }
+button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 5px 10px; border-radius: 7px; font: inherit; font-size: 13px; cursor: pointer; }
+button:disabled { opacity: .5; cursor: not-allowed; }
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.stages { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+@media (max-width: 720px) { .stages { grid-template-columns: 1fr 1fr; } }
+.stage { border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.stage b { display: block; font-size: 14px; }
+.stage span { font-size: 12px; color: var(--muted); }
+.stage.running { border-color: var(--accent); background: var(--accent-soft); }
+.stage.running span::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 5px; animation: pulse 1s infinite alternate; }
+.stage.done { border-color: var(--ok); background: var(--ok-soft); }
+.stage.failed { border-color: var(--bad); background: var(--bad-soft); }
+.stage.skipped { opacity: .5; }
+@keyframes pulse { to { opacity: .2; } }
+@media (prefers-reduced-motion: reduce) { .stage.running span::before { animation: none; } }
+.log { font-family: var(--mono); font-size: 12.5px; max-height: 260px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin-top: 12px; }
+.log div { padding: 1px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.log .warning { color: var(--warn); } .log .failed, .log .error { color: var(--bad); } .log .done { color: var(--ok); }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.badge { font-size: 12px; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.badge.gap { background: var(--ok-soft); color: var(--ok); }
+.badge.crowded { background: var(--warn-soft); color: var(--warn); }
+.badge.quiet { background: var(--accent-soft); color: var(--accent); }
+details summary { cursor: pointer; color: var(--accent); font-size: 13px; }
+details ul { margin: 6px 0; padding-left: 18px; font-size: 13px; }
+.note { background: var(--warn-soft); color: var(--warn); border-radius: 8px; padding: 8px 12px; font-size: 13px; margin-top: 10px; }
+.error-box { background: var(--bad-soft); color: var(--bad); border-radius: 8px; padding: 10px 12px; margin-top: 10px; }
+.chat { display: grid; gap: 8px; margin-top: 10px; }
+.chat .msg { padding: 8px 12px; border-radius: 8px; background: var(--bg); white-space: pre-wrap; }
+.chat .msg.you { background: var(--accent-soft); }
+.chat form { display: flex; gap: 8px; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.tile .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tile .k { font-size: 12px; color: var(--muted); }
+.doc { border: 1px solid var(--line); border-radius: 8px; padding: 4px 18px; max-height: 620px; overflow: auto; overflow-wrap: anywhere; }
+.doc pre { white-space: pre-wrap; }
+.downloads { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.downloads a { font-size: 13px; color: var(--accent); }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>🧞 ResearchGenie <small>Agentic research pipeline, live demo</small></h1>
+    <span id="sys" class="pill">Checking model…</span>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="card" id="start">
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" aria-selected="true" data-mode="advisor">Start from a field (Trend Advisor)</button>
+      <button class="tab" role="tab" aria-selected="false" data-mode="direct">Start from a question</button>
+    </div>
+
+    <form id="advisorForm">
+      <p class="muted" style="margin-top:0">Stage 0 ranks rising topics in a field from live OpenAlex/arXiv counts, then a parallel swarm mines each topic's papers for stated future work. You pick the topic; the agent never picks for you.</p>
+      <div class="row">
+        <div><label for="domain">Field</label><select id="domain"></select></div>
+        <div id="otherWrap" hidden><label for="otherName">Name your field</label><input id="otherName"></div>
+        <div><label for="shortlistSize">Shortlist size</label><input id="shortlistSize" type="number" min="6" max="9" value="8"></div>
+      </div>
+      <button class="primary" type="submit">Find rising topics</button>
+    </form>
+
+    <form id="directForm" hidden>
+      <div style="margin-bottom:12px"><label for="question">Research question</label>
+        <textarea id="question" required placeholder="e.g. What are the effects of intermittent fasting on cognitive performance?"></textarea></div>
+      <div class="row" id="directOptions"></div>
+      <button class="primary" type="submit">Run the four-stage pipeline</button>
+    </form>
+  </section>
+
+  <section class="card" id="progress" hidden>
+    <h2>Agent progress <span class="muted" id="elapsed" style="font-weight:400"></span></h2>
+    <div class="stages" id="stages"></div>
+    <div class="log" id="log" aria-live="polite"></div>
+    <div id="runError" class="error-box" hidden></div>
+  </section>
+
+  <section class="card" id="shortlist" hidden>
+    <h2>Shortlist <span class="muted" id="shortlistMeta" style="font-weight:400"></span></h2>
+    <div class="table-scroll"><table>
+      <thead><tr><th>#</th><th>Topic and evidence</th><th class="num">Growth</th><th class="num">Recent papers</th><th>Signal</th><th></th></tr></thead>
+      <tbody id="shortlistBody"></tbody>
+    </table></div>
+    <div id="advisorWarnings"></div>
+
+    <h2 style="margin-top:18px">Ask the advisor</h2>
+    <p class="muted" style="margin:0">Answers use only the shortlist evidence above.</p>
+    <div class="chat">
+      <div id="chatLog"></div>
+      <form id="chatForm"><input id="chatInput" placeholder="e.g. Which of these has the clearest unmet need?" aria-label="Question for the advisor"><button class="primary" type="submit">Ask</button></form>
+    </div>
+  </section>
+
+  <section class="card" id="lockin" hidden>
+    <h2>Lock in: <span id="lockTopic"></span></h2>
+    <div id="lockDraftNote" class="muted">Drafting a research question from the topic's gap evidence…</div>
+    <form id="lockForm" hidden>
+      <div style="margin:12px 0"><label for="lockQuestion">Research question (edit freely)</label><textarea id="lockQuestion" required></textarea></div>
+      <div class="row" id="lockOptions"></div>
+      <button class="primary" type="submit">Run the full pipeline on it</button>
+    </form>
+  </section>
+
+  <section class="card" id="results" hidden>
+    <h2>Results</h2>
+    <div class="tiles" id="tiles"></div>
+    <div class="downloads" id="downloads"></div>
+    <div class="tabs" role="tablist" id="docTabs"></div>
+    <div class="doc" id="doc"></div>
+  </section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const STAGES = [
+  ["trend_advisor", "📈 Trend Advisor"], ["discovery", "🔍 Discovery"], ["writing", "✍️ Writing"],
+  ["verification", "🔗 Verification"], ["quality_assurance", "🛡️ Quality"],
+];
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const md = (text) => window.marked && window.DOMPurify
+  ? DOMPurify.sanitize(marked.parse(text || ""))
+  : `<pre>${esc(text)}</pre>`;
+
+async function api(path, body) {
+  const res = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || data));
+  return data;
+}
+
+// ---- pipeline options shared by both entry points ----
+function optionsHtml(prefix) {
+  return `
+    <div><label for="${prefix}Format">Format</label><select id="${prefix}Format">
+      ${["IEEE", "Springer", "ACM", "APA"].map((f) => `<option>${f}</option>`).join("")}</select></div>
+    <div><label for="${prefix}Corpus">Papers to use (6–9)</label><input id="${prefix}Corpus" type="number" min="6" max="9" value="8"></div>
+    <div><label for="${prefix}Words">Target words (optional)</label><input id="${prefix}Words" type="number" min="1" placeholder="auto"></div>`;
+}
+$("directOptions").innerHTML = optionsHtml("d");
+$("lockOptions").innerHTML = optionsHtml("l");
+const readOptions = (p) => ({
+  target_format: $(p + "Format").value,
+  corpus_size: Number($(p + "Corpus").value),
+  max_draft_length: $(p + "Words").value ? Number($(p + "Words").value) : null,
+});
+
+// ---- system status ----
+(async () => {
+  try {
+    const s = await api("/system");
+    $("sys").textContent = `${s.provider} · ${s.model} · ${s.model_ready ? "ready" : "not ready"}`;
+    $("sys").className = "pill " + (s.model_ready ? "ok" : "bad");
+    if (!s.model_ready) $("sys").title = "Start Ollama (ollama serve) and pull the model, then reload.";
+    $("domain").innerHTML = s.domains.map((d) => `<option value="${d.key}">${esc(d.label)}</option>`).join("");
+  } catch (e) { $("sys").textContent = "Backend unreachable"; $("sys").className = "pill bad"; }
+})();
+$("domain").onchange = () => { $("otherWrap").hidden = $("domain").value !== "Other"; };
+
+document.querySelectorAll("[data-mode]").forEach((tab) => tab.onclick = () => {
+  document.querySelectorAll("[data-mode]").forEach((t) => t.setAttribute("aria-selected", t === tab));
+  $("advisorForm").hidden = tab.dataset.mode !== "advisor";
+  $("directForm").hidden = tab.dataset.mode !== "direct";
+});
+
+// ---- run tracking ----
+let runId = null, source = null, timer = null, startedAt = 0, shortlist = null;
+
+function resetProgress(withAdvisor) {
+  $("progress").hidden = false;
+  $("runError").hidden = true;
+  $("stages").innerHTML = STAGES.map(([key, label]) =>
+    `<div class="stage ${key === "trend_advisor" && !withAdvisor ? "skipped" : ""}" id="st-${key}"><b>${label}</b><span>${key === "trend_advisor" && !withAdvisor ? "not used" : "waiting"}</span></div>`).join("");
+  $("log").innerHTML = "";
+  startedAt = Date.now();
+  clearInterval(timer);
+  timer = setInterval(() => {
+    const s = Math.round((Date.now() - startedAt) / 1000);
+    $("elapsed").textContent = `· ${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`;
+  }, 1000);
+}
+
+function setStage(key, status, text) {
+  const el = $("st-" + key);
+  if (!el) return;
+  const order = STAGES.map((s) => s[0]);
+  // A later stage starting means every earlier one finished.
+  if (status === "running") order.slice(0, order.indexOf(key)).forEach((k) => {
+    const prev = $("st-" + k);
+    if (prev.classList.contains("running")) { prev.className = "stage done"; prev.querySelector("span").textContent = "done"; }
+  });
+  el.className = "stage " + (status === "warning" ? "running" : status);
+  el.querySelector("span").textContent = text;
+}
+
+function logLine(text, cls) {
+  const line = document.createElement("div");
+  line.className = cls || "";
+  line.textContent = `${new Date().toLocaleTimeString()}  ${text}`;
+  $("log").appendChild(line);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function follow(id, onResult) {
+  if (source) source.close();
+  runId = id;
+  history.replaceState(null, "", "#" + id);
+  source = new EventSource(`/research/runs/${id}/events`);
+  source.onmessage = (msg) => {
+    const ev = JSON.parse(msg.data);
+    if (ev.type === "progress") {
+      const secs = ev.details && ev.details.seconds != null ? ` (${ev.details.seconds}s)` : "";
+      setStage(ev.stage, ev.status, ev.status === "done" ? "done" + secs : ev.status === "warning" ? "running, with warnings" : ev.status);
+      logLine(`${ev.emoji} ${ev.message}${secs}`, ev.status);
+    } else if (ev.type === "result") {
+      onResult(ev.result);
+    } else if (ev.type === "error") {
+      document.querySelectorAll(".stage.running").forEach((el) => { el.className = "stage failed"; el.querySelector("span").textContent = "failed"; });
+      $("runError").hidden = false;
+      $("runError").textContent = "Run failed: " + ev.message;
+      logLine(ev.message, "error");
+    }
+  };
+  source.addEventListener("end", () => { source.close(); clearInterval(timer); });
+  source.onerror = () => { logLine("Lost connection to the event stream.", "warning"); source.close(); clearInterval(timer); };
+}
+
+// ---- Stage 0 ----
+$("advisorForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = e.submitter; btn.disabled = true;
+  ["shortlist", "lockin", "results"].forEach((id) => $(id).hidden = true);
+  try {
+    const body = { domain: $("domain").value, shortlist_size: Number($("shortlistSize").value) };
+    if (body.domain === "Other") body.domain_other_name = $("otherName").value;
+    const { run_id } = await api("/advisor/runs", body);
+    resetProgress(true);
+    setStage("trend_advisor", "running", "running");
+    ["discovery", "writing", "verification", "quality_assurance"].forEach((k) => setStage(k, "stage", "after you pick a topic"));
+    follow(run_id, showShortlist);
+  } catch (err) { alert(err.message); } finally { btn.disabled = false; }
+};
+
+function signal(c) {
+  if (c.gap_signal) return `<span class="badge gap">recurring gap</span>`;
+  return c.paper_count >= 3000 ? `<span class="badge crowded">hot but crowded</span>` : `<span class="badge quiet">under-explored</span>`;
+}
+
+function showShortlist(result) {
+  shortlist = result;
+  setStage("trend_advisor", "done", "shortlist ready");
+  $("shortlist").hidden = false;
+  $("shortlistMeta").textContent = `· ${result.domain_other_name || result.domain} · ${result.shortlist.filter((c) => c.gap_signal).length} of ${result.shortlist.length} flagged as recurring gaps`;
+  $("shortlistBody").innerHTML = result.shortlist.map((c, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td><b>${esc(c.topic)}</b>
+        <details><summary>Evidence (${c.example_papers.length} papers, ${c.gap_evidence.length} gap statements)</summary>
+          ${c.gap_evidence.length ? `<ul>${c.gap_evidence.map((g) => `<li><b>gap:</b> ${esc(g)}</li>`).join("")}</ul>` : `<p class="muted" style="font-size:13px">No gap statements (not checked, or none found).</p>`}
+          <ul>${c.example_papers.map((p) => `<li>${esc(p.title)}${p.year ? ` (${p.year})` : ""}${p.doi ? ` · <a href="https://doi.org/${esc(p.doi.replace(/^https?:\/\/doi.org\//, ""))}" target="_blank" rel="noopener">doi</a>` : ""}</li>`).join("")}</ul>
+          ${c.arxiv_recent_count != null ? `<p class="muted" style="font-size:13px">arXiv preprints among recent hits: ${c.arxiv_recent_count}</p>` : ""}
+        </details></td>
+      <td class="num" title="${c.prior_papers} → ${c.paper_count} papers">${c.growth_metric}×</td>
+      <td class="num">${c.paper_count.toLocaleString()}</td>
+      <td>${signal(c)}</td>
+      <td><button class="ghost" data-pick="${i}">Pick</button></td>
+    </tr>`).join("");
+  $("advisorWarnings").innerHTML = result.warnings.map((w) => `<div class="note">${esc(w)}</div>`).join("");
+  document.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => lockIn(result.shortlist[b.dataset.pick]));
+}
+
+$("chatForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const q = $("chatInput").value.trim();
+  if (!q) return;
+  const add = (text, cls) => { const d = document.createElement("div"); d.className = "msg " + cls; d.textContent = text; $("chatLog").appendChild(d); return d; };
+  add(q, "you"); $("chatInput").value = "";
+  const pending = add("Thinking…", "bot");
+  try { pending.textContent = (await api(`/advisor/runs/${runId}/chat`, { question: q })).reply; }
+  catch (err) { pending.textContent = err.message; }
+};
+
+let lockedTopic = null;
+async function lockIn(candidate) {
+  lockedTopic = candidate.topic;
+  $("lockin").hidden = false;
+  $("lockTopic").textContent = candidate.topic;
+  $("lockForm").hidden = true;
+  $("lockDraftNote").textContent = "Drafting a research question from the topic's gap evidence…";
+  $("lockin").scrollIntoView({ behavior: "smooth" });
+  try {
+    const r = await api(`/advisor/runs/${runId}/question`, { topic: candidate.topic });
+    $("lockQuestion").value = r.research_question;
+    $("lockDraftNote").textContent = r.drafted ? "Drafted by the model. Edit it before running if you like."
+      : "No question was drafted. Below is your topic, not a research question: edit it into one before running.";
+  } catch (err) { $("lockQuestion").value = candidate.topic; $("lockDraftNote").textContent = err.message; }
+  $("lockForm").hidden = false;
+}
+
+$("lockForm").onsubmit = async (e) => {
+  e.preventDefault();
+  e.submitter.disabled = true;
+  try {
+    const body = { topic: lockedTopic, research_question: $("lockQuestion").value.trim(), ...readOptions("l") };
+    await api(`/advisor/runs/${runId}/pipeline`, body);
+    ["shortlist", "lockin"].forEach((id) => $(id).hidden = true);
+    resetProgress(true);
+    follow(runId, showResults);
+  } catch (err) { alert(err.message); e.submitter.disabled = false; }
+};
+
+// ---- direct question ----
+$("directForm").onsubmit = async (e) => {
+  e.preventDefault();
+  e.submitter.disabled = true;
+  ["shortlist", "lockin", "results"].forEach((id) => $(id).hidden = true);
+  try {
+    const { run_id } = await api("/research/runs", { research_question: $("question").value.trim(), ...readOptions("d") });
+    resetProgress(false);
+    follow(run_id, showResults);
+  } catch (err) { alert(err.message); } finally { e.submitter.disabled = false; }
+};
+
+// ---- results ----
+function showResults(r) {
+  const qa = r.quality_assurance, v = r.verification, dm = r.writing.draft_metadata;
+  $("results").hidden = false;
+  const tile = (k, val) => `<div class="tile"><div class="v">${esc(val)}</div><div class="k">${esc(k)}</div></div>`;
+  $("tiles").innerHTML = [
+    tile("Overall quality /5", qa.scores.overall.toFixed(1)),
+    tile("Citation integrity /5", qa.scores.citation_integrity.toFixed(1)),
+    tile("Claim–source alignment /5", qa.scores.claim_source_alignment.toFixed(1)),
+    tile("Literature coverage /5", qa.scores.literature_coverage.toFixed(1)),
+    tile("Papers selected", r.discovery.selected_papers.length),
+    tile("Citations verified", `${v.verified_references.length} ✓ / ${v.invalid_references.length} ✗ / ${v.unverifiable_references.length} ?`),
+    tile("Words written", `${dm.actual_words}${dm.target_words ? " / " + dm.target_words : ""}`),
+    tile("Draft status", `${dm.draft_status} · ${dm.sections_written}/${dm.total_sections || dm.sections_written} sections`),
+  ].join("");
+  $("downloads").innerHTML = ["draft.md", "paper.tex", "paper.pdf", "quality_report.md", "validation_report.md", "references.md"]
+    .map((f) => `<a href="/research/runs/${r.run_id}/files/${f}" download>⬇ ${f}</a>`).join("") +
+    `<span class="muted" style="font-size:13px">Saved in ${esc(r.run_directory)}</span>`;
+  const docs = {
+    "Draft": qa.final_draft_markdown,
+    "Quality report": qa.quality_report_markdown,
+    "Citation verification": qa.final_validation_report,
+    "References": qa.final_references.map((x) => "- " + x).join("\n"),
+    "Research gaps": r.discovery.research_gaps.map((g) => `### ${g.title}\n*${g.gap_type} · impact ${g.impact}*\n\n${g.description}`).join("\n\n"),
+  };
+  if (r.trend_advisor) docs["Why this topic"] = `**Chosen topic:** ${r.trend_advisor.chosen_topic}\n\n` +
+    (r.trend_advisor.shortlist.find((c) => c.topic === r.trend_advisor.chosen_topic)?.gap_evidence || []).map((g) => "- " + g).join("\n");
+  $("docTabs").innerHTML = Object.keys(docs).map((k, i) => `<button class="tab" role="tab" aria-selected="${i === 0}" data-doc="${esc(k)}">${esc(k)}</button>`).join("");
+  const show = (k) => {
+    document.querySelectorAll("[data-doc]").forEach((t) => t.setAttribute("aria-selected", t.dataset.doc === k));
+    $("doc").innerHTML = md(docs[k]);
+  };
+  document.querySelectorAll("[data-doc]").forEach((t) => t.onclick = () => show(t.dataset.doc));
+  show("Draft");
+  $("results").scrollIntoView({ behavior: "smooth" });
+}
+
+// ---- resume after a page reload: the event stream replays the run's history ----
+(async () => {
+  const id = location.hash.slice(1);
+  if (!id) return;
+  try {
+    await api(`/research/runs/${id}`);
+    resetProgress(true);
+    follow(id, (res) => ("shortlist" in res ? showShortlist(res) : showResults(res)));
+  } catch { history.replaceState(null, "", location.pathname); }
+})();
+</script>
+</body>
+</html>

@@ -170,3 +170,54 @@ def test_research_run_events_stream_returns_progress_then_end(client, monkeypatc
 def test_stream_research_run_events_returns_404_for_unknown_run_id(client):
     response = client.get("/research/runs/does-not-exist/events")
     assert response.status_code == 404
+
+
+def test_advisor_shortlist_hands_off_to_pipeline_under_same_run_id(client, monkeypatch):
+    from shared.contracts.trend_contract import TopicCandidate, TrendAdvisorResult
+
+    shortlist = TrendAdvisorResult(
+        domain="MECHANICAL", generated_at="2026-09-16T00:00:00Z",
+        shortlist=[TopicCandidate(topic="Topic A", growth_metric=2.0, paper_count=100,
+                                  gap_evidence=["no work tests A under load"], gap_signal=True)],
+    )
+
+    async def fake_advisor(request, output_root=None, run_id=None):
+        yield {"type": "progress", "run_id": run_id, "message": "ranking"}
+        yield {"type": "result", "result": shortlist, "run_directory": f"/nowhere/x_{run_id}"}
+
+    seen = {}
+
+    async def fake_pipeline(request, output_root=None, run_id=None, **kwargs):
+        seen.update(request=request, run_id=run_id, **kwargs)
+        yield {"type": "result", "result": _fake_pipeline_result()}
+
+    async def fake_question(candidate):
+        return f"How does {candidate.topic} behave under load?"
+
+    monkeypatch.setattr(orchestrator_api, "run_trend_advisor_stage", fake_advisor)
+    monkeypatch.setattr(orchestrator_api, "run_pipeline", fake_pipeline)
+    monkeypatch.setattr(orchestrator_api.advisor_cli, "_research_question_for", fake_question)
+
+    run_id = client.post("/advisor/runs", json={"domain": "MECHANICAL"}).json()["run_id"]
+    body = _wait_for_status(client, run_id, {"completed", "failed"})
+    assert body["result"]["shortlist"][0]["topic"] == "Topic A"
+
+    assert client.post(f"/advisor/runs/{run_id}/question", json={"topic": "Nope"}).status_code == 422
+    drafted = client.post(f"/advisor/runs/{run_id}/question", json={"topic": "Topic A"}).json()
+    assert drafted == {"research_question": "How does Topic A behave under load?", "drafted": True}
+
+    response = client.post(f"/advisor/runs/{run_id}/pipeline", json={
+        "topic": "Topic A", "research_question": drafted["research_question"]})
+    assert response.status_code == 202
+    body = _wait_for_status(client, run_id, {"completed", "failed"})
+    assert body["status"] == "completed"
+    assert seen["run_id"] == run_id
+    assert seen["request"].research_question == drafted["research_question"]
+    assert seen["trend_advisor"].chosen_topic == "Topic A"
+    assert seen["advisor_directory"] == f"/nowhere/x_{run_id}"
+
+
+def test_index_serves_frontend(client):
+    response = client.get("/")
+    assert response.status_code == 200
+    assert "ResearchGenie" in response.text

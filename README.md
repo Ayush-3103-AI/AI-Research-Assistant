@@ -49,6 +49,27 @@ Pick your field — Computer Science/AI/ML, ECE, EEE, Mechanical, Civil, Cloud/D
 
 Ask follow-up questions about any topic, say "go with #2" when you've decided, and your pick auto-fills the research question for the full pipeline — which you can run immediately or come back to later. If a data source or the local model is unreachable, the advisor says so rather than showing you a confident empty result.
 
+## 🖥️ Web demo (for evaluators)
+
+A browser front end over the same pipeline, showing every agent stage live. With Ollama running and `qwen3.5:9b` pulled:
+
+```
+git clone https://github.com/Ayush-3103-AI/ResearchGenie.git
+cd ResearchGenie
+python -m venv .venv
+.venv\Scriptsctivate          # macOS/Linux: source .venv/bin/activate
+pip install -r requirements/base.txt
+pip install -e .
+uvicorn orchestrator.api:app --port 8000
+```
+
+Open http://localhost:8000. The header shows whether the model is ready. Then either:
+
+1. **Start from a field**: the Trend Advisor ranks rising topics from live OpenAlex data and mines each one's papers for stated gaps in parallel. Open a topic's evidence, ask the advisor questions, pick one, edit the drafted research question, and run the pipeline on it.
+2. **Start from a question**: type a question and run Discovery → Writing → Verification → Quality directly.
+
+A stage tracker and a live event log follow the run; results show quality scores, citation-verification counts, the draft, reports, and downloads (`draft.md`, `paper.tex`, `paper.pdf` when LaTeX is installed). Reloading the page reconnects to the run. A full run takes roughly 15 minutes on an RTX 4060, much longer on CPU. The API docs are at http://localhost:8000/docs.
+
 ## 📁 What you get
 
 Every run saves a complete, timestamped project folder containing:
