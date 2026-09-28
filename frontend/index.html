@@ -5,50 +5,56 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ResearchGenie · Research workbench</title>
 <meta name="description" content="Turn a research question into an evidence-grounded, citation-verified draft.">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%233b3fb6'/><path d='M9 22V10h6.5a4 4 0 0 1 0 8H9m6.5 0L22 22' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23dc2626'/><path d='M9 22V10h6.5a4 4 0 0 1 0 8H9m6.5 0L22 22' stroke='white' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <!-- display=optional: offline or slow networks fall back to system fonts with no layout shift. -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=optional">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,800&family=Instrument+Serif:ital@1&family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=optional">
 <script defer src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script defer src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <script>try { const t = localStorage.getItem("rg-theme"); if (t) document.documentElement.dataset.theme = t; } catch {}</script>
 <style>
 /* ============ Tokens ============ */
 :root {
-  --bg: #f7f7f4; --panel: #ffffff; --panel-2: #f9f9f7; --line: #e7e6e1; --line-strong: #d3d1ca;
-  --ink: #1a1b1f; --ink-2: #565a63; --ink-3: #8b8e96;
-  --accent: #3b3fb6; --accent-hover: #3236a0; --accent-ink: #ffffff; --accent-soft: #eef0fb;
-  --ok: #1d7a49; --ok-soft: #e6f4ec; --warn: #955800; --warn-soft: #fbf1df; --bad: #b42d25; --bad-soft: #fbe9e7;
-  --shadow-sm: 0 1px 2px rgb(20 20 30 / .06), 0 0 0 1px rgb(20 20 30 / .04);
-  --shadow: 0 8px 24px -12px rgb(20 20 30 / .18), 0 1px 2px rgb(20 20 30 / .05);
-  --font-ui: Inter, ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
-  --font-serif: "Source Serif 4", "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-  --font-mono: ui-monospace, "Cascadia Mono", Consolas, SFMono-Regular, monospace;
+  /* Ayudh theme: warm off-white, ink at reduced opacity instead of greys, red-600 as the only brand colour. */
+  --bg: #fefcfb; --panel: #ffffff; --panel-2: #fcf9f8; --line: rgba(26,20,20,.08); --line-strong: rgba(26,20,20,.15);
+  --ink: #1a1414; --ink-2: rgba(26,20,20,.65); --ink-3: rgba(26,20,20,.4);
+  --accent: #dc2626; --accent-hover: #b91c1c; --accent-ink: #ffffff; --accent-soft: #fef2f2;
+  --ok: #047857; --ok-soft: #ecfdf5; --warn: #b45309; --warn-soft: #fffbeb; --bad: #b91c1c; --bad-soft: #fef2f2;
+  --shadow-sm: 0 1px 2px rgba(26,20,20,.05), 0 0 0 1px rgba(26,20,20,.04);
+  --shadow: 0 30px 90px -40px rgba(26,20,20,.35), 0 1px 2px rgba(26,20,20,.05);
+  --dot: rgba(26,20,20,.13); --grid: rgba(26,20,20,.035); --selection: rgba(220,38,38,.18);
+  --font-display: "Bricolage Grotesque", ui-sans-serif, system-ui, sans-serif;
+  --font-accent: "Instrument Serif", Georgia, serif;
+  --font-ui: Geist, ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-serif: var(--font-ui);
+  --font-mono: "Geist Mono", ui-monospace, "Cascadia Mono", Consolas, SFMono-Regular, monospace;
   --fs-xs: 12px; --fs-sm: 13px; --fs-md: 15px; --fs-lg: 18px; --fs-xl: 24px; --fs-num: 28px;
   --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
   --r-sm: 8px; --r-md: 12px; --r-pill: 999px;
-  --ease-out: cubic-bezier(.23, 1, .32, 1); --ease-in-out: cubic-bezier(.77, 0, .175, 1);
+  --ease-out: cubic-bezier(.16, 1, .3, 1); --ease-in-out: cubic-bezier(.16, 1, .3, 1);
   --dur-fast: 120ms; --dur: 180ms; --dur-slow: 240ms; --move: 6px;
   --rail-w: 290px; --reader-w: 72ch; --bar-h: 60px;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0e0f12; --panel: #16171b; --panel-2: #1b1c21; --line: #26282e; --line-strong: #363840;
-    --ink: #ebebee; --ink-2: #a6a9b1; --ink-3: #74777f;
-    --accent: #9ea4ff; --accent-hover: #b3b8ff; --accent-ink: #0e0f12; --accent-soft: #23254a;
-    --ok: #5fcb92; --ok-soft: #15291f; --warn: #e6a94f; --warn-soft: #2e2311; --bad: #f2857c; --bad-soft: #341a18;
-    --shadow-sm: 0 0 0 1px rgb(255 255 255 / .05); --shadow: 0 12px 32px -12px rgb(0 0 0 / .6);
+    --bg: #0b0d11; --panel: #12151b; --panel-2: #161a21; --line: rgba(236,232,232,.08); --line-strong: rgba(236,232,232,.16);
+    --ink: #ece8e8; --ink-2: rgba(236,232,232,.65); --ink-3: rgba(236,232,232,.4);
+    --accent: #ef4444; --accent-hover: #f87171; --accent-ink: #ffffff; --accent-soft: rgba(239,68,68,.14);
+    --ok: #34d399; --ok-soft: rgba(52,211,153,.12); --warn: #fbbf24; --warn-soft: rgba(251,191,36,.12); --bad: #f87171; --bad-soft: rgba(239,68,68,.14);
+    --shadow-sm: 0 0 0 1px rgba(255,255,255,.05); --shadow: 0 30px 90px -40px rgba(0,0,0,.8);
+    --dot: rgba(236,232,232,.09); --grid: rgba(236,232,232,.03); --selection: rgba(239,68,68,.3);
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0e0f12; --panel: #16171b; --panel-2: #1b1c21; --line: #26282e; --line-strong: #363840;
-  --ink: #ebebee; --ink-2: #a6a9b1; --ink-3: #74777f;
-  --accent: #9ea4ff; --accent-hover: #b3b8ff; --accent-ink: #0e0f12; --accent-soft: #23254a;
-  --ok: #5fcb92; --ok-soft: #15291f; --warn: #e6a94f; --warn-soft: #2e2311; --bad: #f2857c; --bad-soft: #341a18;
-  --shadow-sm: 0 0 0 1px rgb(255 255 255 / .05); --shadow: 0 12px 32px -12px rgb(0 0 0 / .6);
+  --bg: #0b0d11; --panel: #12151b; --panel-2: #161a21; --line: rgba(236,232,232,.08); --line-strong: rgba(236,232,232,.16);
+  --ink: #ece8e8; --ink-2: rgba(236,232,232,.65); --ink-3: rgba(236,232,232,.4);
+  --accent: #ef4444; --accent-hover: #f87171; --accent-ink: #ffffff; --accent-soft: rgba(239,68,68,.14);
+  --ok: #34d399; --ok-soft: rgba(52,211,153,.12); --warn: #fbbf24; --warn-soft: rgba(251,191,36,.12); --bad: #f87171; --bad-soft: rgba(239,68,68,.14);
+  --shadow-sm: 0 0 0 1px rgba(255,255,255,.05); --shadow: 0 30px 90px -40px rgba(0,0,0,.8);
+  --dot: rgba(236,232,232,.09); --grid: rgba(236,232,232,.03); --selection: rgba(239,68,68,.3);
   color-scheme: dark;
 }
 @media (prefers-reduced-motion: reduce) { :root { --move: 0px; } }
@@ -56,7 +62,9 @@
 /* ============ Base ============ */
 *, *::before, *::after { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
-body { margin: 0; background: var(--bg); color: var(--ink); font: var(--fs-md)/1.55 var(--font-ui);
+body { margin: 0; background-color: var(--bg); color: var(--ink); font: var(--fs-md)/1.55 var(--font-ui);
+  background-image: radial-gradient(circle, var(--dot) 1px, transparent 1.3px), linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-size: 28px 28px, 140px 140px, 140px 140px; background-attachment: fixed;
   -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
 [hidden] { display: none !important; }
 h1, h2, h3 { margin: 0; letter-spacing: -.01em; }
@@ -67,6 +75,8 @@ a { color: var(--accent); text-underline-offset: 2px; }
 .muted { color: var(--ink-2); }
 .small { font-size: var(--fs-sm); }
 .num { font-variant-numeric: tabular-nums; }
+::selection { background: var(--selection); }
+.accent { font-family: var(--font-accent); font-style: italic; font-weight: 400; color: var(--accent); font-size: 1.06em; letter-spacing: -.01em; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
@@ -389,6 +399,10 @@ textarea.lg { font-size: 16px; min-height: 110px; }
 .reader th { background: var(--panel-2); font-weight: 600; }
 .reader hr { border: 0; border-top: 1px solid var(--line); margin: 24px 0; }
 .reader em { color: var(--ink-2); }
+
+/* ============ Ayudh type roles (last so they win over the font shorthands above) ============ */
+.brand, .hero h1, .lock-topic, .results-q, .reader h1, .reader h2, .reader h3, .reader h4, .topic h3 { font-family: var(--font-display); font-weight: 800; letter-spacing: -.02em; }
+.rail-title, .rank, .metrics dd, .counter .v, .ring b, .elapsed b, .stage .meta, .log { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 </style>
 </head>
 <body>
@@ -432,7 +446,7 @@ textarea.lg { font-size: 16px; min-height: 110px; }
       </div>
       <div class="card-body">
         <div class="hero">
-          <h1>Turn a research question into a verified draft.</h1>
+          <h1>Turn a research question into a <span class="accent">verified draft.</span></h1>
           <p>Discover the literature, find real gaps, draft an evidence-grounded paper, check every citation, and audit the result. You stay in charge of every decision.</p>
           <ul class="facts">
             <li><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12l5 5L20 7"/></svg>Live counts from OpenAlex and arXiv</li>
