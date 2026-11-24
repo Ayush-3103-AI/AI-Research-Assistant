@@ -47,6 +47,41 @@ Every run saves a complete, timestamped project folder containing:
 
 ResearchGenie always tells you the exact folder path when a run finishes.
 
+## 🔌 Use it from Claude, Cursor or any MCP client
+
+ResearchGenie also runs as an [MCP](https://modelcontextprotocol.io) server, so an AI assistant can run research for you and read the results.
+
+```
+pip install "researchgenie[mcp]"
+```
+
+Run `researchgenie config` once to choose your AI engine (or set it in the `env` block below), then add this to your MCP client's config (for Claude Desktop, `claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "researchgenie": {
+      "command": "researchgenie-mcp",
+      "env": { "RESEARCHGENIE_OUTPUT_DIR": "/path/to/ResearchGenie/outputs" }
+    }
+  }
+}
+```
+
+With [uv](https://docs.astral.sh/uv/) you can skip the install step: use `"command": "uvx"` and `"args": ["--from", "researchgenie[mcp]", "researchgenie-mcp"]`. For Claude Code: `claude mcp add researchgenie -- researchgenie-mcp`.
+
+| Tool | What it does |
+|---|---|
+| `check_setup` | Shows which AI engine will be used and whether it's ready |
+| `start_research` | Starts a full run in the background and returns a `run_id` |
+| `get_run_status` | Current stage and progress (can wait up to 50 s for completion) |
+| `get_research_result` | Final draft, references, quality score, reports and file paths |
+| `list_research_runs` | Previous runs in your output folder |
+
+Finished runs can also be read as resources (`researchgenie://runs/{run_id}/draft`, `/references`, `/quality-report`, `/paper.tex`), and the `research_paper` prompt runs the whole flow for you.
+
+Engine settings can be given in the `env` block instead of `researchgenie config`: `AI_PROVIDER` (`ollama` or `gemini`), `LOCAL_AI_MODEL`, `GEMINI_MODEL`, `GEMINI_API_KEY`, `OLLAMA_HOST`. Output goes to `RESEARCHGENIE_OUTPUT_DIR` (default `~/ResearchGenie/outputs`). To try it interactively: `npx @modelcontextprotocol/inspector researchgenie-mcp`. To serve over HTTP instead of stdio: `researchgenie-mcp --http --port 8765`.
+
 ## 🔒 Privacy
 
 With the default Ollama engine, your research question, retrieved literature, and generated draft never leave your machine — there is no cloud AI call anywhere in the pipeline. Choosing the optional Gemini engine sends prompts to Google's API, same as using any cloud AI service; your API key is stored locally and never logged, committed, or embedded in generated output.

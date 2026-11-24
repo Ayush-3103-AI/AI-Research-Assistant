@@ -23,8 +23,14 @@ dependencies = [
     "uvicorn>=0.29.0",
 ]
 
+[project.optional-dependencies]
+# The MCP server (researchgenie-mcp) is optional, so the plain CLI install
+# stays lean:  pip install "researchgenie[mcp]"
+mcp = ["mcp>=2.0,<3.0"]
+
 [project.scripts]
 researchgenie = "researchgenie.cli:main"
+researchgenie-mcp = "researchgenie.mcp_server:main"
 
 [tool.setuptools]
 # The pipeline's own service modules (services/research-discovery, etc.)
